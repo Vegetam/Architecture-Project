@@ -1,0 +1,17 @@
+apiVersion: v2
+name: microservice
+description: >
+  Reusable Helm chart for stateless microservices in the Vegetam platform.
+  Supports Argo Rollouts (canary/blue-green), HPA, PDB, and Prometheus ServiceMonitor.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - microservice
+  - argo-rollouts
+  - progressive-delivery
+home: https://github.com/Vegetam/gitops-progressive-delivery
+maintainers:
+  - name: Vegetam
+    url: https://github.com/Vegetam
+dependencies: []

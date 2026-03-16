@@ -1,0 +1,144 @@
+# ==============================================================================
+# ArgoCD — Helm values
+#
+# Install:
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm upgrade --install argocd argo/argo-cd \
+#     --namespace argocd --create-namespace \
+#     --version 7.3.11 \
+#     -f argocd/install/argocd-values.yaml
+# ==============================================================================
+
+global:
+  image:
+    tag: "v2.11.3"
+
+configs:
+  params:
+    # Disable TLS within the cluster (ingress handles TLS termination)
+    server.insecure: true
+    # Allow Kustomize to use Helm
+    kustomize.buildOptions: "--enable-helm"
+
+  cm:
+    # Application health check overrides for Argo Rollouts
+    resource.customizations.health.argoproj.io_Rollout: |
+      hs = {}
+      if obj.status ~= nil then
+        if obj.status.phase == "Degraded" then
+          hs.status = "Degraded"
+          hs.message = obj.status.message
+          return hs
+        end
+        if obj.status.phase == "Paused" then
+          hs.status = "Suspended"
+          hs.message = "Rollout paused (awaiting promotion)"
+          return hs
+        end
+        if obj.status.readyReplicas == obj.spec.replicas then
+          hs.status = "Healthy"
+          return hs
+        end
+      end
+      hs.status = "Progressing"
+      hs.message = "Rollout in progress"
+      return hs
+
+    # OIDC / SSO (GitHub OAuth — set env vars in argocd-secret)
+    # url: https://${ARGOCD_HOSTNAME}
+    # oidc.config: |
+    #   name: GitHub
+    #   issuer: https://token.actions.githubusercontent.com
+    #   clientID: ${GITHUB_CLIENT_ID}
+    #   clientSecret: $oidc.github.clientSecret
+    #   requestedScopes: ["openid", "profile", "email"]
+
+  rbac:
+    # Allow read-only for all authenticated; write for admins only
+    policy.default: role:readonly
+    policy.csv: |
+      p, role:admin, applications, *, */*, allow
+      p, role:admin, clusters, *, *, allow
+      p, role:admin, repositories, *, *, allow
+      g, platform-team, role:admin
+
+server:
+  replicas: 2
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: "500m"
+    requests:
+      memory: 128Mi
+      cpu: "100m"
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+    hosts:
+      - ${ARGOCD_HOSTNAME}
+    tls:
+      - secretName: argocd-tls
+        hosts:
+          - ${ARGOCD_HOSTNAME}
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: argocd
+
+repoServer:
+  replicas: 2
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: "1000m"
+    requests:
+      memory: 256Mi
+      cpu: "200m"
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+applicationSet:
+  replicas: 2
+  resources:
+    limits:
+      memory: 128Mi
+      cpu: "200m"
+    requests:
+      memory: 64Mi
+      cpu: "50m"
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+controller:
+  replicas: 1
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: "1000m"
+    requests:
+      memory: 256Mi
+      cpu: "250m"
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+notifications:
+  enabled: true
+  resources:
+    limits:
+      memory: 128Mi
+      cpu: "200m"
+    requests:
+      memory: 64Mi
+      cpu: "50m"

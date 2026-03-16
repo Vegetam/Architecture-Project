@@ -1,0 +1,41 @@
+# ==============================================================================
+# AnalysisTemplate: latency-p99
+#
+# Queries Prometheus for p99 latency of a service.
+# Threshold: p99 must stay below 500ms during canary traffic.
+#
+# Complements success-rate.yaml — both must pass for a canary step to proceed.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency-p99
+  namespace: microservices
+spec:
+  args:
+    - name: service-name
+    - name: threshold-ms
+      value: "500"
+    - name: prometheus-url
+      value: http://prometheus-operated.observability.svc.cluster.local:9090
+
+  metrics:
+    - name: latency-p99
+      interval: 1m
+      count: 5
+      failureLimit: 1
+
+      provider:
+        prometheus:
+          address: "{{args.prometheus-url}}"
+          query: |
+            histogram_quantile(0.99,
+              sum(rate(otel_http_server_duration_bucket{
+                service_name="{{args.service-name}}"
+              }[5m])) by (le)
+            ) * 1000
+
+      # Result is in milliseconds
+      successCondition: "result[0] < {{args.threshold-ms}}"
+      failureCondition: "result[0] > {{args.threshold-ms}} * 2"
+      inconclusiveLimit: 2

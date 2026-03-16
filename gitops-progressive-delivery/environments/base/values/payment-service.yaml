@@ -1,0 +1,15 @@
+# Values for payment-service
+image:
+  repository: ghcr.io/vegetam/payment-service
+  tag: latest
+
+service:
+  port: 3002
+
+rollout:
+  enabled: true
+  strategy: blueGreen
+
+serviceMonitor:
+  enabled: true
+  path: /metrics

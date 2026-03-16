@@ -1,0 +1,37 @@
+# ==============================================================================
+# Base environment — shared resources across dev / staging / production.
+# Environments override via patches in their own kustomization.yaml.
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # AnalysisTemplates (shared across all environments)
+  - ../../argo-rollouts/analysis/success-rate.yaml
+  - ../../argo-rollouts/analysis/latency-p99.yaml
+
+  # Namespace
+  - namespace.yaml
+
+helmCharts:
+  - name: microservice
+    path: ../../helm-charts/microservice
+    releaseName: order-service
+    namespace: microservices
+    valuesFile: values/order-service.yaml
+
+  - name: microservice
+    path: ../../helm-charts/microservice
+    releaseName: payment-service
+    namespace: microservices
+    valuesFile: values/payment-service.yaml
+
+  - name: microservice
+    path: ../../helm-charts/microservice
+    releaseName: saga-orchestrator
+    namespace: microservices
+    valuesFile: values/saga-orchestrator.yaml
+
+commonLabels:
+  managed-by: gitops
+  platform: vegetam

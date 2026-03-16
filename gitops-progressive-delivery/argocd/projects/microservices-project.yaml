@@ -1,0 +1,66 @@
+# ==============================================================================
+# AppProject: microservices
+# Manages business microservices (order, payment, saga, notification).
+# Scoped to the microservices namespace only.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: microservices
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+spec:
+  description: "Business microservices — DDD, Kafka, Saga"
+
+  sourceRepos:
+    - "https://github.com/Vegetam/microservices-ddd-kafka"
+    - "https://github.com/Vegetam/Saga-pattern-architecture"
+    - "https://github.com/Vegetam/gitops-progressive-delivery"
+    - "ghcr.io/vegetam"
+
+  destinations:
+    - namespace: microservices
+      server: "*"
+    - namespace: microservices-staging
+      server: "*"
+    - namespace: microservices-dev
+      server: "*"
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "argoproj.io"
+      kind: Rollout
+    - group: "argoproj.io"
+      kind: AnalysisTemplate
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  roles:
+    - name: developer
+      description: Read-only for developers; sync allowed in dev only
+      policies:
+        - p, proj:microservices:developer, applications, get, microservices/*, allow
+        - p, proj:microservices:developer, applications, sync, microservices/*-dev, allow
+      groups:
+        - engineering
+
+    - name: release-manager
+      description: Full sync for all environments
+      policies:
+        - p, proj:microservices:release-manager, applications, *, microservices/*, allow
+      groups:
+        - platform-team
+        - release-team
+
+  syncWindows:
+    # Production syncs only during business hours (Mon-Fri 08:00-20:00 UTC)
+    - kind: allow
+      schedule: "0 8 * * 1-5"
+      duration: 12h
+      applications:
+        - "*-production"
+      manualSync: true

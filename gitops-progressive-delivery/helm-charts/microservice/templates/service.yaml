@@ -1,0 +1,102 @@
+{{- if eq .Values.rollout.strategy "canary" }}
+# Canary strategy requires two Services: stable and canary
+# Argo Rollouts adjusts the endpoint subsets during rollout.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "microservice.stableService" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+    rollout-type: stable
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "microservice.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "microservice.canaryService" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+    rollout-type: canary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "microservice.selectorLabels" . | nindent 4 }}
+
+{{- else if eq .Values.rollout.strategy "blueGreen" }}
+# Blue/Green strategy requires active (live) and preview (new) Services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-active" (include "microservice.fullname" .)) .Values.rollout.blueGreen.activeService }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+    rollout-type: active
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "microservice.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-preview" (include "microservice.fullname" .)) .Values.rollout.blueGreen.previewService }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+    rollout-type: preview
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "microservice.selectorLabels" . | nindent 4 }}
+
+{{- else }}
+# Standard single Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "microservice.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "microservice.selectorLabels" . | nindent 4 }}
+{{- end }}

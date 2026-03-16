@@ -1,0 +1,46 @@
+# ==============================================================================
+# AnalysisTemplate: success-rate
+#
+# Queries Prometheus (from observability-platform-turnkey-fixed) for the HTTP
+# 5xx error rate of a service over a 5-minute window.
+#
+# Metric names use the otel_ prefix from OTel Collector spanmetrics processor.
+# Label service_name is injected by the Rollout as an argument.
+#
+# Pass/fail threshold: < 5% error rate
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: microservices
+spec:
+  args:
+    - name: service-name
+    - name: prometheus-url
+      value: http://prometheus-operated.observability.svc.cluster.local:9090
+
+  metrics:
+    - name: success-rate
+      interval: 1m
+      count: 5        # Run 5 times (5 minutes total)
+      failureLimit: 1 # Allow 1 failure before aborting the rollout
+
+      provider:
+        prometheus:
+          address: "{{args.prometheus-url}}"
+          query: |
+            1 - (
+              sum(rate(otel_http_server_duration_count{
+                service_name="{{args.service-name}}",
+                http_status_code=~"5.."
+              }[5m]))
+              /
+              sum(rate(otel_http_server_duration_count{
+                service_name="{{args.service-name}}"
+              }[5m]))
+            )
+
+      successCondition: result[0] >= 0.95   # >= 95% success rate
+      failureCondition: result[0] < 0.90    # < 90% = immediate abort
+      inconclusiveLimit: 2                  # No data yet → mark inconclusive

@@ -1,0 +1,42 @@
+# ==============================================================================
+# App of Apps — root application
+#
+# This single Application tells ArgoCD to watch the argocd/apps/ directory.
+# Every YAML file in that directory becomes a managed Application automatically.
+#
+# Bootstrap:
+#   kubectl apply -f argocd/apps/app-of-apps.yaml
+#
+# After this, ArgoCD self-manages all child apps declaratively.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"  # Deploy before child apps
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Vegetam/gitops-progressive-delivery
+    targetRevision: HEAD
+    path: argocd/apps
+    directory:
+      recurse: false
+      exclude: "app-of-apps.yaml"  # exclude self
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove apps deleted from git
+      selfHeal: true    # Re-sync if someone edits ArgoCD directly
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
