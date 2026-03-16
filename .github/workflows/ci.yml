@@ -316,7 +316,7 @@ jobs:
 
   gitops-build-and-scan:
     name: "[GITOPS] Build and Scan Images"
-    needs: gitops-service-smoke-test
+    needs: [changes, gitops-service-smoke-test]
     if: needs.changes.outputs.gitops == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
@@ -354,7 +354,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Trivy security scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.vars.outputs.short_sha }}
           format: sarif
@@ -369,7 +369,7 @@ jobs:
 
   gitops-publish-images:
     name: "[GITOPS] Publish Images"
-    needs: gitops-build-and-scan
+    needs: [changes, gitops-build-and-scan]
     if: (needs.changes.outputs.gitops == 'true' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
