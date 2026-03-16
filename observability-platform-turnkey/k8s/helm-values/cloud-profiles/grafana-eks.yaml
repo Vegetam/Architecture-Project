@@ -35,4 +35,3 @@ affinity:
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: grafana
-
