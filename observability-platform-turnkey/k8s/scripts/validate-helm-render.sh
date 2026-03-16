@@ -84,7 +84,7 @@ validate_release() {
   version="$(chart_version "$chart_key")"
   chart_dir="$(pull_chart "$chart_ref" "$version" "$chart_dir_name")"
 
-  helm lint "$chart_dir" "$@" >/dev/null
+  helm lint "$chart_dir" "$@"
   helm template "$release_name" "$chart_ref" --version "$version" "$@" >/dev/null
   echo "OK: ${release_name} (${chart_ref}@${version})"
 }

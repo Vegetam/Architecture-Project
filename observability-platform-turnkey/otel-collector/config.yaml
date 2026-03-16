@@ -39,7 +39,7 @@ processors:
     attributes:
       - action: insert
         key: environment
-        value: ${env:ENVIRONMENT:-local}
+        value: ${env:ENVIRONMENT}
       - action: insert
         key: platform
         value: observability-platform
