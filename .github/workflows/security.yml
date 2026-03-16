@@ -29,6 +29,8 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: "1"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   yamllint:
     name: YAML lint

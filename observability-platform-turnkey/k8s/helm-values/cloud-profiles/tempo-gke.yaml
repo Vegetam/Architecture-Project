@@ -12,6 +12,17 @@ ingester:
       labelSelector:
         matchLabels:
           app.kubernetes.io/component: ingester
+  podDisruptionBudget:
+    maxUnavailable: 1
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: topology.kubernetes.io/zone
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: ingester
 
 compactor:
   persistence:
@@ -26,27 +37,6 @@ distributor:
       labelSelector:
         matchLabels:
           app.kubernetes.io/component: distributor
-
-querier:
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: querier
-
-queryFrontend:
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: query-frontend
-
-# Opinionated defaults (cloud profile)
-distributor:
   podDisruptionBudget:
     maxUnavailable: 1
   affinity:
@@ -59,20 +49,14 @@ distributor:
               matchLabels:
                 app.kubernetes.io/component: distributor
 
-ingester:
-  podDisruptionBudget:
-    maxUnavailable: 1
-  affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            topologyKey: topology.kubernetes.io/zone
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/component: ingester
-
 querier:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: querier
   podDisruptionBudget:
     maxUnavailable: 1
   affinity:
@@ -85,3 +69,11 @@ querier:
               matchLabels:
                 app.kubernetes.io/component: querier
 
+queryFrontend:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: query-frontend
