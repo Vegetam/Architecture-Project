@@ -20,17 +20,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
       - name: Run Trivy scan
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          scan-type: fs
-          scan-ref: ./observability-platform-turnkey
-          ignore-unfixed: true
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          trivy fs \
+            --ignore-unfixed \
+            --format table \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            ./observability-platform-turnkey
 
   yamllint:
     name: YAML lint
