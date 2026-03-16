@@ -14,7 +14,9 @@ spec:
             severity: critical
           annotations:
             summary: "Prometheus appears to be scraping nothing"
-            description: "The number of scrape targets up is < 1 for 5 minutes. This usually means SD is broken or Prometheus cannot reach targets."
+            description: >-
+              The number of scrape targets up is < 1 for 5 minutes.
+              This usually means SD is broken or Prometheus cannot reach targets.
 
         - alert: HighScrapeErrorRate
           expr: rate(prometheus_target_scrapes_exceeded_sample_limit_total[5m]) > 0
