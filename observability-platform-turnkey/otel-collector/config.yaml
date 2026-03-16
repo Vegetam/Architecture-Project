@@ -109,7 +109,9 @@ exporters:
 connectors:
   # Span metrics connector — generates RED metrics from traces (replaces deprecated spanmetrics processor)
   spanmetrics:
-    latency_histogram_buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    histogram:
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
     dimensions:
       - name: http.method
       - name: http.status_code

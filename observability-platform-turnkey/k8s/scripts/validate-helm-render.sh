@@ -102,7 +102,7 @@ validate_minio_profile() {
   grafana_base="$(render_to_temp k8s/helm-values/grafana-values.yaml)"
 
   validate_release kps-minio kubePrometheusStack prometheus-community/kube-prometheus-stack kube-prometheus-stack -f "$kps_base" -f "$kps_profile"
-  validate_release loki-minio loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile"
+  validate_release loki-minio loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile" --set loki.useTestSchema=true
   validate_release tempo-minio tempoDistributed grafana/tempo-distributed tempo-distributed -f "$tempo_base" -f "$tempo_provider" -f "$tempo_profile"
   validate_release grafana-minio grafana grafana/grafana grafana -f "$grafana_base"
 }
@@ -126,7 +126,7 @@ validate_aws_cloud_profile() {
   velero_provider="$(render_to_temp k8s/helm-values/velero/velero-aws-irsa.yaml)"
 
   validate_release kps-aws kubePrometheusStack prometheus-community/kube-prometheus-stack kube-prometheus-stack -f "$kps_base" -f "$kps_profile" -f "$kps_cloud"
-  validate_release loki-aws loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile" -f "$loki_cloud"
+  validate_release loki-aws loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile" -f "$loki_cloud" --set loki.useTestSchema=true
   validate_release tempo-aws tempoDistributed grafana/tempo-distributed tempo-distributed -f "$tempo_base" -f "$tempo_provider" -f "$tempo_profile" -f "$tempo_cloud"
   validate_release grafana-aws grafana grafana/grafana grafana -f "$grafana_base" -f "$grafana_cloud"
   validate_release velero-aws velero vmware-tanzu/velero velero -f "$velero_base" -f "$velero_provider"
@@ -143,7 +143,7 @@ validate_gcp_cloud_profile() {
   tempo_profile="$(render_to_temp k8s/helm-values/profiles/tempo-medium.yaml)"
   tempo_cloud="$(render_to_temp k8s/helm-values/cloud-profiles/tempo-gke.yaml)"
 
-  validate_release loki-gcp loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile" -f "$loki_cloud"
+  validate_release loki-gcp loki grafana/loki loki -f "$loki_base" -f "$loki_provider" -f "$loki_profile" -f "$loki_cloud" --set loki.useTestSchema=true
   validate_release tempo-gcp tempoDistributed grafana/tempo-distributed tempo-distributed -f "$tempo_base" -f "$tempo_provider" -f "$tempo_profile" -f "$tempo_cloud"
 }
 
