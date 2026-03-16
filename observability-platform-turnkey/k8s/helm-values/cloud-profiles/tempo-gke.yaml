@@ -1,17 +1,10 @@
 # GKE cloud profile for Tempo distributed
-# Uses premium-rwo-backed PVCs for stateful parts and spreads critical components by zone.
+# Uses premium-rwo-backed PVCs for stateful parts and enables PDBs for HA.
 
 ingester:
   persistence:
     enabled: true
     storageClass: premium-rwo
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: ingester
   podDisruptionBudget:
     maxUnavailable: 1
 
@@ -21,32 +14,9 @@ compactor:
     storageClass: premium-rwo
 
 distributor:
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: distributor
   podDisruptionBudget:
     maxUnavailable: 1
 
 querier:
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: querier
   podDisruptionBudget:
     maxUnavailable: 1
-
-queryFrontend:
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: query-frontend
