@@ -76,17 +76,6 @@ processors:
         type: probabilistic
         probabilistic: {sampling_percentage: 10}
 
-  # Add span metrics (RED metrics from traces automatically)
-  spanmetrics:
-    metrics_exporter: prometheus
-    latency_histogram_buckets:
-      [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
-    dimensions:
-      - name: http.method
-      - name: http.status_code
-      - name: service.name
-      - name: rpc.grpc.status_code
-
 exporters:
   # Traces → Tempo (OTLP)
   #
@@ -111,13 +100,21 @@ exporters:
   # Logs → Loki
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
-    labels:
-      resource:
-        service.name: "service_name"
-        service.version: "service_version"
-      attributes:
-        severity: ""
-        level: ""
+    default_labels_enabled:
+      exporter: false
+      job: true
+      instance: true
+      level: true
+
+connectors:
+  # Span metrics connector — generates RED metrics from traces (replaces deprecated spanmetrics processor)
+  spanmetrics:
+    latency_histogram_buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: service.name
+      - name: rpc.grpc.status_code
 
 extensions:
   health_check:
@@ -133,11 +130,11 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resource, tail_sampling, spanmetrics, batch]
-      exporters: [otlp/tempo]
+      processors: [memory_limiter, resource, tail_sampling, batch]
+      exporters: [otlp/tempo, spanmetrics]
 
     metrics:
-      receivers: [otlp, prometheus, prometheus/self]
+      receivers: [otlp, prometheus, prometheus/self, spanmetrics]
       processors: [memory_limiter, resource, batch]
       exporters: [prometheus]
 

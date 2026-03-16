@@ -15,7 +15,6 @@ upstreams:
     healthchecks:
       active:
         http_path: /api/health
-        interval: 10
         healthy:
           http_statuses: [200]
           successes: 2
@@ -33,7 +32,6 @@ upstreams:
     healthchecks:
       active:
         http_path: /ready
-        interval: 10
         healthy:
           http_statuses: [200]
           successes: 2
