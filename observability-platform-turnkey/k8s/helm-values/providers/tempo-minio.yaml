@@ -1,0 +1,11 @@
+# Tempo storage overlay: MinIO (dev/local)
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: tempo-traces
+      endpoint: minio.observability.svc.cluster.local:9000
+      region: us-east-1
+      access_key: ${MINIO_ACCESS_KEY}
+      secret_key: ${MINIO_SECRET_KEY}
+      insecure: true

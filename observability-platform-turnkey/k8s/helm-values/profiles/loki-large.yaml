@@ -1,0 +1,8 @@
+# Loki large profile (multi-zone recommended)
+loki:
+  write:
+    replicas: 6
+  read:
+    replicas: 6
+  backend:
+    replicas: 6

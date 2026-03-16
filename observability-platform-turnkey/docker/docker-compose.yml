@@ -1,0 +1,360 @@
+version: "3.9"
+
+# ==============================================================================
+# Observability Platform — Docker Compose (production-minded)
+#
+# Principles:
+# - Only expose what you must: Kong proxy + Grafana.
+# - Keep admin/control planes on an internal network.
+# - Secrets are provided via .env (copy from .env.example).
+# ==============================================================================
+
+networks:
+  public:
+    driver: bridge
+  observability:
+    driver: bridge
+    internal: true
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+  kong_data:
+  promtail_positions:
+  alertmanager_rendered:  # holds the envsubst-rendered alertmanager config
+
+services:
+
+  # ──────────────────────────────────────────
+  #  Kong Database (Postgres)
+  # ──────────────────────────────────────────
+  kong-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${KONG_PG_DATABASE:-kong}
+      POSTGRES_USER: ${KONG_PG_USER:-kong}
+      POSTGRES_PASSWORD: ${KONG_PG_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+    networks: [observability]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KONG_PG_USER:-kong}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+
+  kong-migrate:
+    image: kong:3.6
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: ${KONG_PG_USER:-kong}
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
+      KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
+    networks: [observability]
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    restart: on-failure
+
+  # ──────────────────────────────────────────
+  #  Redis (Kong rate-limiting)
+  # ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    networks: [observability]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+
+  # ──────────────────────────────────────────
+  #  Kong API Gateway
+  # ──────────────────────────────────────────
+  kong:
+    image: kong:3.6
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: ${KONG_PG_USER:-kong}
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
+      KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
+
+      # Logs
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+
+      # IMPORTANT:
+      # Admin API / Manager are NOT published to the host. They are reachable only
+      # on the internal Docker network (observability).
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_ADMIN_GUI_LISTEN: "0.0.0.0:8002"
+
+      # OpenTelemetry plugin
+      KONG_TRACING_INSTRUMENTATIONS: all
+      KONG_TRACING_SAMPLING_RATE: "1.0"
+      KONG_OPENTELEMETRY_TRACING: "on"
+    ports:
+      - "8000:8000"   # Kong proxy (HTTP)
+      - "8443:8443"   # Kong proxy (HTTPS)
+    networks:
+      - public
+      - observability
+    depends_on:
+      kong-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
+        reservations:
+          memory: 256M
+          cpus: "0.50"
+
+  # Kong declarative config sync (deck)
+  kong-sync:
+    image: kong/deck:v1.38
+    command: >
+      deck gateway sync /config/kong.yml
+      --kong-addr http://kong:8001
+      --skip-ca-certificates
+    volumes:
+      - ../gateway/kong.yml:/config/kong.yml:ro
+    networks: [observability]
+    depends_on:
+      kong:
+        condition: service_healthy
+    restart: on-failure
+
+  # ──────────────────────────────────────────
+  #  OpenTelemetry Collector
+  # ──────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ../otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver (public ingress for apps)
+      - "4318:4318"   # OTLP HTTP receiver (public ingress for apps)
+    networks:
+      - public
+      - observability
+    depends_on:
+      - tempo
+      - loki
+    deploy:
+      resources:
+        limits:
+          # Must exceed memory_limiter limit_mib (512) + spike_limit_mib (128) = 640 MiB
+          memory: 700M
+          cpus: "1.00"
+        reservations:
+          memory: 256M
+          cpus: "0.50"
+  # ──────────────────────────────────────────
+  #  Tempo (Distributed Tracing backend)
+  # ──────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo/config.yml"]
+    volumes:
+      - ../tempo/config.yml:/etc/tempo/config.yml:ro
+      - tempo_data:/var/tempo
+    networks: [observability]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+  # ──────────────────────────────────────────
+  #  Prometheus
+  # ──────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+      - "--config.expand-env=true"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/rules:/etc/prometheus/rules:ro
+      - ../prometheus/targets:/etc/prometheus/targets:ro
+      - prometheus_data:/prometheus
+    networks: [observability]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+  # ──────────────────────────────────────────
+  #  Alertmanager config renderer
+  #  (Alertmanager has no native env-var expansion, so we use envsubst via
+  #   Alpine to render config.yml from env vars before the main service starts)
+  # ──────────────────────────────────────────
+  alertmanager-config:
+    image: alpine:3.19
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache gettext >/dev/null 2>&1
+        envsubst < /config-template/config.yml > /rendered-config/config.yml
+        echo "Alertmanager config rendered."
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-#observability-alerts}
+      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
+      ALERTMANAGER_EMAIL_TO: ${ALERTMANAGER_EMAIL_TO:-}
+      GF_SMTP_HOST: ${GF_SMTP_HOST:-localhost:587}
+      GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:-alertmanager@example.com}
+      GF_SMTP_USER: ${GF_SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:-}
+    volumes:
+      - ../alertmanager/config.yml:/config-template/config.yml:ro
+      - alertmanager_rendered:/rendered-config
+    networks: [observability]
+
+  # ──────────────────────────────────────────
+  #  Alertmanager
+  # ──────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - "--config.file=/etc/alertmanager/config.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      # Mount the envsubst-rendered config, not the raw template
+      - alertmanager_rendered:/etc/alertmanager:ro
+    networks: [observability]
+    depends_on:
+      alertmanager-config:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+  # ──────────────────────────────────────────
+  #  Loki (Log Aggregation)
+  # ──────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.5
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ../loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks: [observability]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+  # ──────────────────────────────────────────
+  #  Promtail (Docker log discovery → Loki)
+  # ──────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:2.9.5
+    volumes:
+      - ../promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - promtail_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml
+    networks: [observability]
+    depends_on: [loki]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+
+  # ──────────────────────────────────────────
+  #  Grafana
+  # ──────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor"
+      # SMTP (optional)
+      GF_SMTP_ENABLED: "${GF_SMTP_ENABLED:-false}"
+      GF_SMTP_HOST: "${GF_SMTP_HOST:-}"
+      GF_SMTP_USER: "${GF_SMTP_USER:-}"
+      GF_SMTP_PASSWORD: "${GF_SMTP_PASSWORD:-}"
+      GF_SMTP_FROM_ADDRESS: "${GF_SMTP_FROM_ADDRESS:-}"
+      GF_SMTP_FROM_NAME: "${GF_SMTP_FROM_NAME:-}"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - public
+      - observability
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+        reservations:
+          memory: 128M
+          cpus: "0.25"

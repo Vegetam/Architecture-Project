@@ -1,0 +1,8 @@
+# Loki small profile
+loki:
+  write:
+    replicas: 2
+  read:
+    replicas: 2
+  backend:
+    replicas: 2

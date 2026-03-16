@@ -1,0 +1,8 @@
+# Prometheus medium profile
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    retention: 15d
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2

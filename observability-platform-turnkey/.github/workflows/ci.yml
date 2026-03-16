@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────
+  #  YAML lint — runs on every PR (not just security schedule)
+  # ──────────────────────────────────────────
+  yamllint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pipx install yamllint
+      - name: Lint all YAML
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: {max: 140}}}" \
+            otel-collector/ prometheus/ promtail/ loki/ tempo/ alertmanager/ \
+            grafana/provisioning/ k8s/helm-values/ k8s/manifests/ docker/
+
+  # ──────────────────────────────────────────
+  #  Kong declarative config
+  # ──────────────────────────────────────────
+  kong-lint:
+    name: Lint Kong Config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deck
+        run: |
+          curl -sL https://github.com/Kong/deck/releases/download/v1.38.0/deck_1.38.0_linux_amd64.tar.gz | tar xz
+          sudo mv deck /usr/local/bin/
+      - name: Validate kong.yml
+        run: deck file validate gateway/kong.yml
+
+  # ──────────────────────────────────────────
+  #  OTel Collector config
+  # ──────────────────────────────────────────
+  otel-validate:
+    name: Validate OTel Collector Config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate config
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/otel-collector/config.yaml:/etc/otel/config.yaml:ro \
+            otel/opentelemetry-collector-contrib:0.98.0 \
+            validate --config /etc/otel/config.yaml
+
+  # ──────────────────────────────────────────
+  #  Prometheus config + alerting rules
+  # ──────────────────────────────────────────
+  prometheus-validate:
+    name: Validate Prometheus Config + Rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check prometheus.yml
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/prometheus:/etc/prometheus:ro \
+            prom/prometheus:v2.51.0 \
+            promtool check config /etc/prometheus/prometheus.yml
+      - name: Check alerting rules
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/prometheus/rules:/rules:ro \
+            prom/prometheus:v2.51.0 \
+            promtool check rules /rules/services.yml /rules/infra.yml
+
+  # ──────────────────────────────────────────
+  #  Grafana dashboards (JSON + required fields)
+  # ──────────────────────────────────────────
+  grafana-lint:
+    name: Lint Grafana Dashboards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dashboard JSON + required fields
+        run: |
+          for f in grafana/dashboards/*.json; do
+            echo "Checking $f..."
+            python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              d = json.load(fh)
+          required = ['title', 'uid', 'panels']
+          missing = [r for r in required if r not in d]
+          if missing:
+              print(f'ERROR: missing fields in $f: {missing}')
+              sys.exit(1)
+          print(f'  OK: {d[\"title\"]}')
+            "
+          done
+
+  # ──────────────────────────────────────────
+  #  Helm values — valid YAML + versions.yaml check
+  # ──────────────────────────────────────────
+  helm-values-validate:
+    name: Validate Helm Values
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.43.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Parse all Helm values as valid YAML
+        run: |
+          find k8s/helm-values -name "*.yaml" | while read f; do
+            yq e '.' "$f" > /dev/null && echo "  OK: $f" || { echo "  FAIL: $f"; exit 1; }
+          done
+      - name: Validate versions.yaml structure
+        run: |
+          python3 -c "
+          import yaml, sys
+          with open('k8s/versions.yaml') as f:
+              v = yaml.safe_load(f)
+          if not v.get('charts'):
+              print('ERROR: versions.yaml missing charts key')
+              sys.exit(1)
+          for name, chart in v['charts'].items():
+              for key in ['repo', 'chart', 'version']:
+                  if key not in chart:
+                      print(f'ERROR: charts.{name} missing {key}')
+                      sys.exit(1)
+          print(f'OK: {len(v[\"charts\"])} charts pinned in versions.yaml')
+          "
+
+  # ──────────────────────────────────────────
+  #  Helm render smoke tests — catches unresolved ${VAR} placeholders
+  # ──────────────────────────────────────────
+  helm-render-validate:
+    name: Validate Helm Rendering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+      - name: Render + lint selected cloud/provider combinations
+        run: k8s/scripts/validate-helm-render.sh
+
+  # ──────────────────────────────────────────
+  #  Shell scripts — shellcheck + bash syntax
+  # ──────────────────────────────────────────
+  shell-validate:
+    name: Validate Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Shellcheck
+        run: |
+          shellcheck -S warning \
+            k8s/scripts/common.sh \
+            k8s/scripts/install-observability.sh \
+            k8s/scripts/install-eks.sh \
+            k8s/scripts/install-gke.sh \
+            k8s/scripts/install-aks.sh \
+            k8s/scripts/bootstrap-cert-manager.sh \
+            k8s/scripts/bootstrap-ingress.sh \
+            k8s/scripts/install-velero.sh \
+            k8s/scripts/validate-helm-render.sh \
+            k8s/scripts/restore-drill.sh \
+            k8s/scripts/apply-security.sh \
+            k8s/scripts/install-minio.sh \
+            scripts/kind-up.sh \
+            scripts/smoke-test.sh
+      - name: Bash syntax check (parse only — no execution)
+        run: |
+          find k8s/scripts scripts -name "*.sh" | while read f; do
+            bash -n "$f" && echo "  OK: $f" || { echo "  FAIL: $f"; exit 1; }
+          done
+
+  # ──────────────────────────────────────────
+  #  Docker Compose — main + debug override
+  # ──────────────────────────────────────────
+  compose-validate:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate main compose
+        run: docker compose -f docker/docker-compose.yml config --quiet
+      - name: Validate debug override
+        run: |
+          docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.debug.yml \
+            config --quiet
+
+  # ──────────────────────────────────────────
+  #  Kubernetes manifests (kubeconform)
+  # ──────────────────────────────────────────
+  k8s-manifests-validate:
+    name: Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.6/kubeconform-linux-amd64.tar.gz \
+            | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate manifests
+        run: |
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.29.0 \
+            -summary \
+            k8s/manifests/

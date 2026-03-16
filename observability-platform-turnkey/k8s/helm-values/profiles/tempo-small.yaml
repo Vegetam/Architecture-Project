@@ -1,0 +1,11 @@
+# Tempo small profile
+distributor:
+  replicas: 2
+ingester:
+  replicas: 2
+querier:
+  replicas: 2
+queryFrontend:
+  replicas: 2
+compactor:
+  replicas: 1

@@ -1,0 +1,13 @@
+# Loki storage overlay: Google Cloud Storage (Workload Identity / no static keys)
+# Requires: GCP_GSA_EMAIL (Google Service Account email)
+loki:
+  storage:
+    type: gcs
+    gcs:
+      bucket_name: ${LOKI_GCS_BUCKET}
+
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    iam.gke.io/gcp-service-account: ${GCP_GSA_EMAIL}

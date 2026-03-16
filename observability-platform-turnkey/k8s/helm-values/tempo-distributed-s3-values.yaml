@@ -1,0 +1,36 @@
+# Tempo distributed values
+# This assumes you provide S3 credentials/config via a Secret named "tempo-s3".
+
+storage:
+  trace:
+    backend: s3
+
+# Tempo chart implementations differ by version.
+# The key point is: configure the S3 endpoint/bucket and wire it from a Secret.
+# Use `helm show values grafana/tempo-distributed` for the exact schema.
+
+envFrom:
+  - secretRef:
+      name: tempo-s3
+
+replicas:
+  distributor: 2
+  ingester: 3
+  querier: 2
+  queryFrontend: 2
+
+resources:
+  distributor:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  ingester:
+    requests:
+      cpu: 300m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi

@@ -1,0 +1,8 @@
+# Tempo storage overlay: Google Cloud Storage (STATIC key optional)
+# Prefer Workload Identity via tempo-gcp-wi.yaml in production.
+storage:
+  trace:
+    backend: gcs
+    gcs:
+      bucket_name: ${TEMPO_GCS_BUCKET}
+      # Prefer Workload Identity on GKE.

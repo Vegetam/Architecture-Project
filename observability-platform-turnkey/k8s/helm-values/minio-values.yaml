@@ -1,0 +1,19 @@
+# MinIO values (dev/test only)
+# In production, use a managed object store (S3/GCS/Azure) instead.
+#
+# Credentials are NOT set here to avoid hardcoding secrets in source control.
+# They are injected by install-minio.sh from MINIO_ROOT_USER / MINIO_ROOT_PASSWORD
+# env vars. Set those in your .env file before running the install script.
+
+mode: standalone
+
+auth:
+  # rootUser and rootPassword are overridden at install time via --set flags.
+  # See k8s/scripts/install-minio.sh and .env.example.
+  existingSecret: ""
+
+defaultBuckets: "loki,tempo,thanos"
+
+persistence:
+  enabled: true
+  size: 50Gi

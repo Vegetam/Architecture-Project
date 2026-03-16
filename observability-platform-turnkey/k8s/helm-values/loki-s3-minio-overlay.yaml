@@ -1,0 +1,9 @@
+# Overlay for local/dev when using MinIO deployed in the same namespace.
+# Apply on top of loki-s3-ha-values.yaml.
+
+# Example env vars consumed by loki-s3 Secret template.
+# Update the Secret (k8s/manifests/secrets/loki-s3-secret.yaml) like:
+# - AWS_ACCESS_KEY_ID=minio
+# - AWS_SECRET_ACCESS_KEY=minio12345
+# - LOKI_S3_ENDPOINT=minio.observability.svc:9000
+# - LOKI_S3_INSECURE=true

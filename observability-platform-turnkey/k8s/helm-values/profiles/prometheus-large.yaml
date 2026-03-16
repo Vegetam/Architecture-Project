@@ -1,0 +1,8 @@
+# Prometheus large profile
+prometheus:
+  prometheusSpec:
+    replicas: 3
+    retention: 30d
+alertmanager:
+  alertmanagerSpec:
+    replicas: 3

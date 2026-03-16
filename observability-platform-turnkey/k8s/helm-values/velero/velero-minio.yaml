@@ -1,0 +1,18 @@
+# S3-compatible (MinIO) overlay
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: ${VELERO_BUCKET:-velero-backups}
+      config:
+        region: us-east-1
+        s3ForcePathStyle: "true"
+        s3Url: http://minio.observability.svc.cluster.local:9000
+        insecureSkipTLSVerify: "true"
+  volumeSnapshotLocation: []
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins

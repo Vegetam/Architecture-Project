@@ -1,0 +1,9 @@
+# Tempo storage overlay: Azure Blob Storage (STATIC key)
+# Prefer Workload Identity via tempo-azure-wi.yaml in production.
+storage:
+  trace:
+    backend: azure
+    azure:
+      container_name: ${TEMPO_AZURE_CONTAINER}
+      storage_account_name: ${AZURE_STORAGE_ACCOUNT}
+      storage_account_key: ${AZURE_STORAGE_ACCOUNT_KEY}

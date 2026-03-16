@@ -1,0 +1,34 @@
+# Render this manifest through k8s/scripts/apply-security.sh.
+# Required environment variables:
+# - GRAFANA_HOSTNAME
+# Optional overrides:
+# - OBS_NAMESPACE (default: observability)
+# - INGRESS_CLASS_NAME (default: nginx)
+# - CERT_ISSUER_NAME (default: letsencrypt-prod)
+# - CERT_ISSUER_KIND (default: cluster-issuer)
+# - GRAFANA_TLS_SECRET_NAME (default: grafana-tls)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: ${OBS_NAMESPACE}
+  annotations:
+    kubernetes.io/ingress.class: ${INGRESS_CLASS_NAME}
+    cert-manager.io/${CERT_ISSUER_KIND}: ${CERT_ISSUER_NAME}
+spec:
+  ingressClassName: ${INGRESS_CLASS_NAME}
+  tls:
+    - secretName: ${GRAFANA_TLS_SECRET_NAME}
+      hosts:
+        - ${GRAFANA_HOSTNAME}
+  rules:
+    - host: ${GRAFANA_HOSTNAME}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 80

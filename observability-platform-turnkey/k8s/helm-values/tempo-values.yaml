@@ -1,0 +1,5 @@
+tempo:
+  storage:
+    trace:
+      backend: local
+# Production: switch to s3/gcs/azure and enable replicas.

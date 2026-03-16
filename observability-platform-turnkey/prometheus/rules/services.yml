@@ -1,0 +1,55 @@
+groups:
+  - name: services
+    rules:
+      - alert: High5xxErrorRate
+        expr: |
+          (
+            sum(rate(http_server_duration_count{http_status_code=~"5.."}[5m])) by (service_name)
+            /
+            sum(rate(http_server_duration_count[5m])) by (service_name)
+          ) * 100 > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate (service {{ $labels.service_name }})"
+          description: "5xx rate is > 5% for 10 minutes."
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_server_duration_bucket[5m])) by (le, service_name)) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency (service {{ $labels.service_name }})"
+          description: "p99 latency is > 1s for 10 minutes."
+
+      - alert: SagaCompensationFailed
+        expr: increase(saga_failed_total{status="COMPENSATION_FAILED"}[5m]) > 0
+        # 1-minute grace period avoids noise from transient failures that self-recover
+        # between scrape intervals. Compensation retries typically resolve within seconds.
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Saga stuck in COMPENSATION_FAILED ({{ $labels.sagaName }})"
+          description: "A saga could not compensate — manual intervention required. See k8s/runbooks/INCIDENTS.md."
+
+      - alert: OtelCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector is down"
+          description: "No telemetry is being collected. Traces, metrics and logs will be lost."
+
+      - alert: KafkaDlqHasMessages
+        expr: kafka_log_log_size{topic=~".*\\.dlq"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ has messages (topic {{ $labels.topic }})"
+          description: "Messages stuck in DLQ for >5 minutes — check consumer errors."

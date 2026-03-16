@@ -1,0 +1,9 @@
+# Loki storage overlay: Azure Blob Storage (STATIC key)
+# Prefer Workload Identity via loki-azure-wi.yaml in production.
+loki:
+  storage:
+    type: azure
+    azure:
+      container_name: ${LOKI_AZURE_CONTAINER}
+      account_name: ${AZURE_STORAGE_ACCOUNT}
+      account_key: ${AZURE_STORAGE_ACCOUNT_KEY}

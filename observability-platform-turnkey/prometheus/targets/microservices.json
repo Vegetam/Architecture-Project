@@ -1,0 +1,82 @@
+[
+  {
+    "targets": [
+      "order-service:3001"
+    ],
+    "labels": {
+      "service_name": "order-service",
+      "project": "microservices-ddd-kafka",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "payment-service:3002"
+    ],
+    "labels": {
+      "service_name": "payment-service",
+      "project": "microservices-ddd-kafka",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "notification-service:3003"
+    ],
+    "labels": {
+      "service_name": "notification-service",
+      "project": "microservices-ddd-kafka",
+      "__metrics_path__": "/api/metrics"
+    }
+  },
+  {
+    "targets": [
+      "saga-orchestrator:3000"
+    ],
+    "labels": {
+      "service_name": "saga-orchestrator",
+      "project": "saga-pattern-architecture",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "saga-order-service:3010"
+    ],
+    "labels": {
+      "service_name": "saga-order-service",
+      "project": "saga-pattern-architecture",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "saga-payment-service:3011"
+    ],
+    "labels": {
+      "service_name": "saga-payment-service",
+      "project": "saga-pattern-architecture",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "saga-inventory-service:3012"
+    ],
+    "labels": {
+      "service_name": "saga-inventory-service",
+      "project": "saga-pattern-architecture",
+      "__metrics_path__": "/metrics"
+    }
+  },
+  {
+    "targets": [
+      "kafka-exporter:9308"
+    ],
+    "labels": {
+      "service_name": "kafka-exporter",
+      "project": "infra",
+      "__metrics_path__": "/metrics"
+    }
+  }
+]

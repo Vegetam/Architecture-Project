@@ -1,0 +1,193 @@
+# ============================================================
+#  Kong Gateway — Declarative Configuration (deck format)
+#  Apply with: deck gateway sync --state gateway/kong.yml
+# ============================================================
+
+_format_version: "3.0"
+_transform: true
+
+# ──────────────────────────────────────────
+#  Upstreams (load balancing)
+# ──────────────────────────────────────────
+upstreams:
+  - name: microservices-ddd-kafka
+    algorithm: round-robin
+    healthchecks:
+      active:
+        http_path: /api/health
+        interval: 10
+        healthy:
+          http_statuses: [200]
+          successes: 2
+        unhealthy:
+          http_statuses: [500, 502, 503]
+          http_failures: 3
+    targets:
+      - target: order-service:3001
+        weight: 100
+      - target: payment-service:3002
+        weight: 100
+
+  - name: saga-orchestrator
+    algorithm: least-connections
+    healthchecks:
+      active:
+        http_path: /ready
+        interval: 10
+        healthy:
+          http_statuses: [200]
+          successes: 2
+    targets:
+      - target: saga-orchestrator:3000
+        weight: 100
+
+# ──────────────────────────────────────────
+#  Services
+# ──────────────────────────────────────────
+services:
+  # microservices-ddd-kafka — Order Service
+  - name: order-service
+    url: http://microservices-ddd-kafka:3001
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    retries: 2
+    routes:
+      - name: orders-api
+        paths:
+          - /api/orders
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        strip_path: false
+        plugins:
+          - name: opentelemetry
+            config:
+              endpoint: http://otel-collector:4318/v1/traces
+              resource_attributes:
+                service.name: kong-orders-proxy
+              propagation:
+                default_format: w3c
+          - name: correlation-id
+            config:
+              header_name: X-Correlation-ID
+              generator: uuid#counter
+              echo_downstream: true
+          - name: rate-limiting
+            config:
+              minute: 300
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+              error_message: "Rate limit exceeded — try again shortly"
+          - name: request-transformer
+            config:
+              remove:
+                headers:
+                  - X-Internal-Token
+                  - X-Service-Secret
+
+  # microservices-ddd-kafka — Payment Service
+  - name: payment-service
+    url: http://microservices-ddd-kafka:3002
+    connect_timeout: 5000
+    read_timeout: 60000   # payment ops can be slower
+    write_timeout: 30000
+    retries: 1            # payment — don't retry blindly
+    routes:
+      - name: payments-api
+        paths:
+          - /api/payments
+        methods: [GET, POST, OPTIONS]
+        strip_path: false
+        plugins:
+          - name: opentelemetry
+            config:
+              endpoint: http://otel-collector:4318/v1/traces
+              resource_attributes:
+                service.name: kong-payments-proxy
+          - name: correlation-id
+            config:
+              header_name: X-Correlation-ID
+              generator: uuid#counter
+              echo_downstream: true
+          - name: rate-limiting
+            config:
+              minute: 100
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+          - name: jwt
+            config:
+              secret_is_base64: false
+              claims_to_verify:
+                - exp
+
+  # Saga Orchestrator
+  - name: saga-orchestrator-svc
+    url: http://saga-orchestrator:3000
+    connect_timeout: 5000
+    read_timeout: 120000  # sagas can take time
+    write_timeout: 30000
+    retries: 0            # saga start is NOT idempotent — never retry
+    routes:
+      - name: saga-orders
+        paths:
+          - /saga/orders
+        methods: [GET, POST, OPTIONS]
+        strip_path: false
+        plugins:
+          - name: opentelemetry
+            config:
+              endpoint: http://otel-collector:4318/v1/traces
+              resource_attributes:
+                service.name: kong-saga-proxy
+          - name: correlation-id
+            config:
+              header_name: X-Correlation-ID
+              generator: uuid#counter
+              echo_downstream: true
+          - name: rate-limiting
+            config:
+              minute: 60
+              policy: redis
+              redis_host: redis
+              redis_port: 6379
+
+      - name: saga-status
+        paths:
+          - /saga/status
+        methods: [GET, OPTIONS]
+        strip_path: false
+
+  # Notification Service (internal — no JWT required)
+  - name: notification-service
+    url: http://notification-service:3003
+    connect_timeout: 3000
+    read_timeout: 10000
+    write_timeout: 10000
+    routes:
+      - name: notifications-health
+        paths:
+          - /api/notifications/health
+        methods: [GET]
+        strip_path: false
+
+# ──────────────────────────────────────────
+#  Global Plugins
+# ──────────────────────────────────────────
+plugins:
+  # Expose Kong's own metrics at /metrics (scraped by Prometheus)
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+
+  # Structured access log for Loki
+  - name: file-log
+    config:
+      path: /dev/stdout
+      reopen: false
+      custom_fields_by_lua:
+        correlation_id: "return kong.request.get_header('X-Correlation-ID')"
+        trace_id: "return kong.request.get_header('traceparent')"

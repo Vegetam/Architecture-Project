@@ -1,0 +1,17 @@
+# Tempo storage overlay: AWS S3 (IRSA / no static keys)
+# Requires: AWS_IRSA_ROLE_ARN (IAM role for service account)
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: ${TEMPO_S3_BUCKET}
+      endpoint: ${S3_ENDPOINT}
+      region: ${S3_REGION}
+      insecure: ${S3_INSECURE}
+
+tempo:
+  serviceAccount:
+    create: true
+    name: tempo
+    annotations:
+      eks.amazonaws.com/role-arn: ${AWS_IRSA_ROLE_ARN}

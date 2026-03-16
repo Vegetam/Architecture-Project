@@ -1,0 +1,147 @@
+# ============================================================
+#  OpenTelemetry Collector — Central Telemetry Hub
+#
+#  Pipeline:
+#    Traces  → Tempo
+#    Metrics → Prometheus (via exporter)
+#    Logs    → Loki
+# ============================================================
+
+receivers:
+  # OTLP from all services (microservices-ddd-kafka, Saga, future Flowable)
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Scrape Kong's Prometheus metrics endpoint
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: "kong"
+          static_configs:
+            - targets: ["kong:8001"]
+          metrics_path: /metrics
+
+  # Collect OTel Collector's own metrics
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: "otel-collector"
+          static_configs:
+            - targets: ["localhost:8888"]
+
+processors:
+  # Add useful attributes to every span/metric/log
+  resource:
+    attributes:
+      - action: insert
+        key: environment
+        value: ${env:ENVIRONMENT:-local}
+      - action: insert
+        key: platform
+        value: observability-platform
+
+  # Batch for efficiency
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+  # Memory limiter — prevent OOM
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Tail sampling — keep 100% of error traces, 10% of success in prod
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code: {status_codes: [ERROR]}
+      - name: keep-slow-traces
+        type: latency
+        latency: {threshold_ms: 1000}
+      - name: keep-saga-failures
+        type: string_attribute
+        string_attribute:
+          key: saga.status
+          values: [FAILED, COMPENSATING, COMPENSATION_FAILED]
+      - name: probabilistic-sample
+        type: probabilistic
+        probabilistic: {sampling_percentage: 10}
+
+  # Add span metrics (RED metrics from traces automatically)
+  spanmetrics:
+    metrics_exporter: prometheus
+    latency_histogram_buckets:
+      [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: service.name
+      - name: rpc.grpc.status_code
+
+exporters:
+  # Traces → Tempo (OTLP)
+  #
+  # Docker Compose: insecure: true is acceptable because both services share an
+  # internal Docker bridge network that is never reachable from the host.
+  #
+  # Kubernetes: switch to mTLS by applying k8s/helm-values/otel-collector-mtls-values.yaml
+  # which sets tls.insecure: false and provides client/CA certificates via cert-manager.
+  # See k8s/helm-values/otel-collector-mtls-values.yaml for the full configuration.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true  # OK for Docker Compose — use mTLS overlay in Kubernetes
+
+  # Metrics → Prometheus scrape endpoint
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: otel
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Logs → Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    labels:
+      resource:
+        service.name: "service_name"
+        service.version: "service_version"
+      attributes:
+        severity: ""
+        level: ""
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, tail_sampling, spanmetrics, batch]
+      exporters: [otlp/tempo]
+
+    metrics:
+      receivers: [otlp, prometheus, prometheus/self]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [loki]
