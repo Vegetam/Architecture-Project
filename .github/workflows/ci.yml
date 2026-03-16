@@ -1,0 +1,490 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "observability-platform-turnkey/**"
+      - "gitops-progressive-delivery/services/**"
+      - "gitops-progressive-delivery/helm-charts/**"
+      - "gitops-progressive-delivery/environments/**"
+      - "gitops-progressive-delivery/argo-rollouts/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "observability-platform-turnkey/**"
+      - "gitops-progressive-delivery/services/**"
+      - "gitops-progressive-delivery/helm-charts/**"
+      - "gitops-progressive-delivery/environments/**"
+      - "gitops-progressive-delivery/argo-rollouts/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+# ─────────────────────────────────────────────────────────────
+#  Detect which project(s) changed so each job set is skipped
+#  when its project is untouched.
+# ─────────────────────────────────────────────────────────────
+jobs:
+  changes:
+    name: Detect changed projects
+    runs-on: ubuntu-latest
+    outputs:
+      observability: ${{ steps.filter.outputs.observability }}
+      gitops: ${{ steps.filter.outputs.gitops }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            observability:
+              - 'observability-platform-turnkey/**'
+            gitops:
+              - 'gitops-progressive-delivery/services/**'
+              - 'gitops-progressive-delivery/helm-charts/**'
+              - 'gitops-progressive-delivery/environments/**'
+              - 'gitops-progressive-delivery/argo-rollouts/**'
+
+  # ═══════════════════════════════════════════════════════════
+  #  OBSERVABILITY-PLATFORM-TURNKEY
+  # ═══════════════════════════════════════════════════════════
+
+  obs-yamllint:
+    name: "[OBS] YAML Lint"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pipx install yamllint
+      - name: Lint all YAML
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: {max: 140}}}" \
+            otel-collector/ prometheus/ promtail/ loki/ tempo/ alertmanager/ \
+            grafana/provisioning/ k8s/helm-values/ k8s/manifests/ docker/
+
+  obs-kong-lint:
+    name: "[OBS] Lint Kong Config"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deck
+        run: |
+          curl -sL https://github.com/Kong/deck/releases/download/v1.38.0/deck_1.38.0_linux_amd64.tar.gz | tar xz
+          sudo mv deck /usr/local/bin/
+      - name: Validate kong.yml
+        run: deck file validate gateway/kong.yml
+
+  obs-otel-validate:
+    name: "[OBS] Validate OTel Collector Config"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate config
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/observability-platform-turnkey/otel-collector/config.yaml:/etc/otel/config.yaml:ro \
+            otel/opentelemetry-collector-contrib:0.98.0 \
+            validate --config /etc/otel/config.yaml
+
+  obs-prometheus-validate:
+    name: "[OBS] Validate Prometheus Config + Rules"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check prometheus.yml
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/observability-platform-turnkey/prometheus:/etc/prometheus:ro \
+            prom/prometheus:v2.51.0 \
+            promtool check config /etc/prometheus/prometheus.yml
+      - name: Check alerting rules
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/observability-platform-turnkey/prometheus/rules:/rules:ro \
+            prom/prometheus:v2.51.0 \
+            promtool check rules /rules/services.yml /rules/infra.yml
+
+  obs-grafana-lint:
+    name: "[OBS] Lint Grafana Dashboards"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dashboard JSON + required fields
+        run: |
+          for f in grafana/dashboards/*.json; do
+            echo "Checking $f..."
+            python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              d = json.load(fh)
+          required = ['title', 'uid', 'panels']
+          missing = [r for r in required if r not in d]
+          if missing:
+              print(f'ERROR: missing fields in \$f: {missing}')
+              sys.exit(1)
+          print(f'  OK: {d[\"title\"]}')
+            "
+          done
+
+  obs-helm-values-validate:
+    name: "[OBS] Validate Helm Values"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.43.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Parse all Helm values as valid YAML
+        run: |
+          find k8s/helm-values -name "*.yaml" | while read f; do
+            yq e '.' "$f" > /dev/null && echo "  OK: $f" || { echo "  FAIL: $f"; exit 1; }
+          done
+      - name: Validate versions.yaml structure
+        run: |
+          python3 -c "
+          import yaml, sys
+          with open('k8s/versions.yaml') as f:
+              v = yaml.safe_load(f)
+          if not v.get('charts'):
+              print('ERROR: versions.yaml missing charts key')
+              sys.exit(1)
+          for name, chart in v['charts'].items():
+              for key in ['repo', 'chart', 'version']:
+                  if key not in chart:
+                      print(f'ERROR: charts.{name} missing {key}')
+                      sys.exit(1)
+          print(f'OK: {len(v[\"charts\"])} charts pinned in versions.yaml')
+          "
+
+  obs-helm-render-validate:
+    name: "[OBS] Validate Helm Rendering"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Render + lint selected cloud/provider combinations
+        run: k8s/scripts/validate-helm-render.sh
+
+  obs-shell-validate:
+    name: "[OBS] Validate Shell Scripts"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Shellcheck
+        run: |
+          shellcheck -S warning \
+            k8s/scripts/common.sh \
+            k8s/scripts/install-observability.sh \
+            k8s/scripts/install-eks.sh \
+            k8s/scripts/install-gke.sh \
+            k8s/scripts/install-aks.sh \
+            k8s/scripts/bootstrap-cert-manager.sh \
+            k8s/scripts/bootstrap-ingress.sh \
+            k8s/scripts/install-velero.sh \
+            k8s/scripts/validate-helm-render.sh \
+            k8s/scripts/restore-drill.sh \
+            k8s/scripts/apply-security.sh \
+            k8s/scripts/install-minio.sh \
+            scripts/kind-up.sh \
+            scripts/smoke-test.sh
+      - name: Bash syntax check (parse only)
+        run: |
+          find k8s/scripts scripts -name "*.sh" | while read f; do
+            bash -n "$f" && echo "  OK: $f" || { echo "  FAIL: $f"; exit 1; }
+          done
+
+  obs-compose-validate:
+    name: "[OBS] Validate Docker Compose"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate main compose
+        run: docker compose -f docker/docker-compose.yml config --quiet
+      - name: Validate debug override
+        run: |
+          docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose.debug.yml \
+            config --quiet
+
+  obs-k8s-manifests-validate:
+    name: "[OBS] Validate K8s Manifests"
+    needs: changes
+    if: needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.6/kubeconform-linux-amd64.tar.gz \
+            | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate manifests
+        run: |
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.29.0 \
+            -summary \
+            k8s/manifests/
+
+  # ═══════════════════════════════════════════════════════════
+  #  GITOPS-PROGRESSIVE-DELIVERY
+  # ═══════════════════════════════════════════════════════════
+
+  gitops-service-smoke-test:
+    name: "[GITOPS] Service Smoke Test"
+    needs: changes
+    if: needs.changes.outputs.gitops == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [order-service, payment-service, saga-orchestrator]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: gitops-progressive-delivery/services/${{ matrix.service }}/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
+      - name: Static syntax check
+        run: node --check server.js
+        working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
+      - name: Health endpoint smoke test
+        run: |
+          node server.js &
+          PID=$!
+          trap 'kill $PID' EXIT
+          sleep 2
+          curl -fsS http://127.0.0.1:8080/health/ready > /dev/null
+        working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
+
+  gitops-build-and-scan:
+    name: "[GITOPS] Build and Scan Images"
+    needs: gitops-service-smoke-test
+    if: needs.changes.outputs.gitops == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+    strategy:
+      matrix:
+        service: [order-service, payment-service, saga-orchestrator]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Set image tag
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.service }}
+            org.opencontainers.image.description=Sample service used by gitops-progressive-delivery
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Build image locally for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: gitops-progressive-delivery/services/${{ matrix.service }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.vars.outputs.short_sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trivy security scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.vars.outputs.short_sha }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+
+  gitops-publish-images:
+    name: "[GITOPS] Publish Images"
+    needs: gitops-build-and-scan
+    if: (needs.changes.outputs.gitops == 'true' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+    strategy:
+      matrix:
+        service: [order-service, payment-service, saga-orchestrator]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.service }}
+            org.opencontainers.image.description=Sample service used by gitops-progressive-delivery
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Push image
+        uses: docker/build-push-action@v5
+        with:
+          context: gitops-progressive-delivery/services/${{ matrix.service }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  gitops-update-staging:
+    name: "[GITOPS] Update Staging Image Tags"
+    needs: gitops-publish-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+      - name: Set image tag
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Install Kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      - name: Update staging image tags
+        run: |
+          cd environments/staging
+          kustomize edit set image \
+            ghcr.io/${{ github.repository_owner }}/order-service=ghcr.io/${{ github.repository_owner }}/order-service:${{ steps.vars.outputs.short_sha }} \
+            ghcr.io/${{ github.repository_owner }}/payment-service=ghcr.io/${{ github.repository_owner }}/payment-service:${{ steps.vars.outputs.short_sha }} \
+            ghcr.io/${{ github.repository_owner }}/saga-orchestrator=ghcr.io/${{ github.repository_owner }}/saga-orchestrator:${{ steps.vars.outputs.short_sha }}
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add environments/staging/kustomization.yaml
+          git commit -m "chore(staging): update images to ${{ steps.vars.outputs.short_sha }}" || exit 0
+          git push
+
+  gitops-promote-production:
+    name: "[GITOPS] Promote to Production"
+    needs: gitops-update-staging
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment:
+      name: production
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+          ref: main
+          fetch-depth: 0
+      - name: Set image tag
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Install Kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      - name: Pin production to exact SHA
+        run: |
+          cd environments/production
+          kustomize edit set image \
+            ghcr.io/${{ github.repository_owner }}/order-service=ghcr.io/${{ github.repository_owner }}/order-service:${{ steps.vars.outputs.short_sha }} \
+            ghcr.io/${{ github.repository_owner }}/payment-service=ghcr.io/${{ github.repository_owner }}/payment-service:${{ steps.vars.outputs.short_sha }} \
+            ghcr.io/${{ github.repository_owner }}/saga-orchestrator=ghcr.io/${{ github.repository_owner }}/saga-orchestrator:${{ steps.vars.outputs.short_sha }}
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add environments/production/kustomization.yaml
+          git commit -m "chore(production): promote ${{ steps.vars.outputs.short_sha }}" || exit 0
+          git push

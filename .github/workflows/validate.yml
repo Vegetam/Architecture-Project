@@ -1,0 +1,167 @@
+name: Validate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "gitops-progressive-delivery/**"
+      - ".github/workflows/validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "gitops-progressive-delivery/**"
+      - ".github/workflows/validate.yml"
+
+jobs:
+  yaml-lint:
+    name: YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: default
+            rules:
+              line-length:
+                max: 200
+              truthy:
+                allowed-values: ["true", "false"]
+          file_or_dir: |
+            gitops-progressive-delivery/.github/workflows/
+            gitops-progressive-delivery/argocd/
+            gitops-progressive-delivery/argo-rollouts/
+            gitops-progressive-delivery/environments/
+            gitops-progressive-delivery/helm-charts/
+
+  validate-kustomize:
+    name: Validate Kustomize builds
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      - name: Build overlays with Helm enabled
+        run: |
+          kustomize build --enable-helm environments/dev > /dev/null
+          kustomize build --enable-helm environments/staging > /dev/null
+          kustomize build --enable-helm environments/production > /dev/null
+
+  validate-helm:
+    name: Validate Helm chart
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint chart
+        run: helm lint helm-charts/microservice
+      - name: Template chart (canary)
+        run: |
+          helm template order-service helm-charts/microservice \
+            --set image.tag=test-sha \
+            --set rollout.strategy=canary > /dev/null
+      - name: Template chart (blueGreen)
+        run: |
+          helm template payment-service helm-charts/microservice \
+            --set image.tag=test-sha \
+            --set rollout.strategy=blueGreen > /dev/null
+
+  validate-argocd:
+    name: Validate Argo CD manifests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Validate Application manifests
+        run: |
+          for f in argocd/apps/*.yaml; do
+            echo "Validating $f"
+            kubectl apply --dry-run=client --validate=true -f "$f" > /dev/null
+          done
+      - name: Validate AppProjects
+        run: |
+          for f in argocd/projects/*.yaml; do
+            echo "Validating $f"
+            kubectl apply --dry-run=client --validate=true -f "$f" > /dev/null
+          done
+
+  validate-analysis-templates:
+    name: Validate AnalysisTemplate PromQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install promtool
+        run: |
+          PROM_VERSION=2.51.0
+          curl -sL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz --strip-components=1 prometheus-${PROM_VERSION}.linux-amd64/promtool
+          sudo mv promtool /usr/local/bin/
+      - name: Extract and validate PromQL queries
+        run: |
+          python3 <<'PY'
+          import pathlib, sys, tempfile, yaml, subprocess
+          errors = []
+          for manifest in sorted(pathlib.Path('argo-rollouts/analysis').glob('*.yaml')):
+              docs = [doc for doc in yaml.safe_load_all(manifest.read_text()) if doc]
+              idx = 0
+              for doc in docs:
+                  metrics = (((doc.get('spec') or {}).get('metrics')) or [])
+                  for metric in metrics:
+                      provider = metric.get('provider') or {}
+                      prom = provider.get('prometheus') or {}
+                      query = prom.get('query')
+                      if not query:
+                          continue
+                      idx += 1
+                      rule = {
+                          'groups': [{
+                              'name': f"{manifest.stem}-{idx}",
+                              'rules': [{
+                                  'record': f"{manifest.stem.replace('-', '_')}_{idx}",
+                                  'expr': query,
+                              }],
+                          }]
+                      }
+                      with tempfile.NamedTemporaryFile('w', suffix='.yaml', delete=False) as tmp:
+                          yaml.safe_dump(rule, tmp, sort_keys=False)
+                          tmp_path = tmp.name
+                      proc = subprocess.run(['promtool', 'check', 'rules', tmp_path], capture_output=True, text=True)
+                      if proc.returncode != 0:
+                          errors.append(f"{manifest}: invalid PromQL in metric {metric.get('name')}\n{proc.stderr}{proc.stdout}")
+                      else:
+                          print(f"validated {manifest} :: {metric.get('name')}")
+          if errors:
+              print('\n'.join(errors), file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  service-files-present:
+    name: Validate service stubs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitops-progressive-delivery
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure demo services are self-contained
+        run: |
+          for svc in order-service payment-service saga-orchestrator; do
+            test -f "services/${svc}/package.json"
+            test -f "services/${svc}/package-lock.json"
+            test -f "services/${svc}/Dockerfile"
+            test -f "services/${svc}/server.js"
+          done
