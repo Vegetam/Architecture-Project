@@ -207,6 +207,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
       - name: Render + lint selected cloud/provider combinations
         run: bash k8s/scripts/validate-helm-render.sh
 
