@@ -37,13 +37,14 @@ jobs:
     name: Detect changed projects
     runs-on: ubuntu-latest
     outputs:
-      observability: ${{ steps.filter.outputs.observability }}
-      gitops: ${{ steps.filter.outputs.gitops }}
-      chaos: ${{ steps.filter.outputs.chaos }}
+      observability: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.observability == 'true' }}
+      gitops: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.gitops == 'true' }}
+      chaos: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.chaos == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             observability:
