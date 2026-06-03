@@ -1,7 +1,11 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json .
-RUN npm install --omit=dev
-COPY server.js .
+COPY --chown=node:node package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --chown=node:node server.js .
+ENV NODE_ENV=production
 EXPOSE 3001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3001/health || exit 1
+USER node
 CMD ["node", "server.js"]

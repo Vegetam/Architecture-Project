@@ -313,13 +313,8 @@ jobs:
       - name: Static syntax check
         run: node --check server.js
         working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
-      - name: Health endpoint smoke test
-        run: |
-          node server.js &
-          PID=$!
-          trap 'kill $PID' EXIT
-          sleep 2
-          curl -fsS http://127.0.0.1:8080/health/ready > /dev/null
+      - name: Smoke tests
+        run: node smoke.test.js
         working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
 
   gitops-build-and-scan:
@@ -638,4 +633,7 @@ jobs:
         working-directory: chaos-engineering-platform/docker/mock-services/${{ matrix.service }}
       - name: Syntax check
         run: node --check server.js
+        working-directory: chaos-engineering-platform/docker/mock-services/${{ matrix.service }}
+      - name: Smoke tests
+        run: node smoke.test.js
         working-directory: chaos-engineering-platform/docker/mock-services/${{ matrix.service }}

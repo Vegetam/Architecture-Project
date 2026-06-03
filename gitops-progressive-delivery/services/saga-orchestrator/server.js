@@ -30,6 +30,14 @@ app.get("/metrics", async (req, res) => {
 
 app.get("/", (req, res) => res.json({ service: SERVICE_NAME, ok: true }));
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`${SERVICE_NAME} listening on :${PORT}`);
 });
+
+const shutdown = (signal) => {
+  console.log(`${SERVICE_NAME} ${signal} — shutting down`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10000);
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => shutdown("SIGINT"));

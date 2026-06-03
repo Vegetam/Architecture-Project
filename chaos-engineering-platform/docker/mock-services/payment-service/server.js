@@ -66,4 +66,12 @@ function simulateTraffic() {
 simulateTraffic();
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`[payment-service] listening on :${PORT}`));
+const server = app.listen(PORT, () => console.log(`[payment-service] listening on :${PORT}`));
+
+const shutdown = (signal) => {
+  console.log(`[payment-service] ${signal} — shutting down`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10000);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
