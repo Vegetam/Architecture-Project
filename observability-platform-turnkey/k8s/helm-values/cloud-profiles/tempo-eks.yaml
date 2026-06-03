@@ -1,0 +1,22 @@
+# EKS cloud profile for Tempo distributed
+# Uses gp3-backed PVCs for stateful parts and enables PDBs for HA.
+
+ingester:
+  persistence:
+    enabled: true
+    storageClass: gp3
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+compactor:
+  persistence:
+    enabled: true
+    storageClass: gp3
+
+distributor:
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+querier:
+  podDisruptionBudget:
+    maxUnavailable: 1

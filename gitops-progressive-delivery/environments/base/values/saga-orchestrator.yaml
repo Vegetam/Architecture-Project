@@ -1,0 +1,15 @@
+# Values for saga-orchestrator
+image:
+  repository: ghcr.io/vegetam/saga-orchestrator
+  tag: latest
+
+service:
+  port: 3000
+
+rollout:
+  enabled: true
+  strategy: canary
+
+serviceMonitor:
+  enabled: true
+  path: /metrics

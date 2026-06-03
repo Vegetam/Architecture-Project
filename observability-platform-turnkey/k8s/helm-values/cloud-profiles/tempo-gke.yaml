@@ -1,0 +1,22 @@
+# GKE cloud profile for Tempo distributed
+# Uses premium-rwo-backed PVCs for stateful parts and enables PDBs for HA.
+
+ingester:
+  persistence:
+    enabled: true
+    storageClass: premium-rwo
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+compactor:
+  persistence:
+    enabled: true
+    storageClass: premium-rwo
+
+distributor:
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+querier:
+  podDisruptionBudget:
+    maxUnavailable: 1

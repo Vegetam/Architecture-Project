@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: microservices-staging
+
+resources:
+  - ../base
+
+commonLabels:
+  environment: staging
+
+# Override image tags — updated by CI via `kustomize edit set image`
+images:
+  - name: ghcr.io/vegetam/order-service
+    newTag: latest
+  - name: ghcr.io/vegetam/payment-service
+    newTag: latest
+  - name: ghcr.io/vegetam/saga-orchestrator
+    newTag: latest
+
+patches:
+  # Fewer replicas in staging
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+
+  # Lower resource limits in staging
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 128Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 64Mi
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+
+  # Disable PDB in staging (we only have 1 replica)
+  - patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 0
+    target:
+      version: v1
+      kind: PodDisruptionBudget
+
+  # Smaller HPA in staging
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+    target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler

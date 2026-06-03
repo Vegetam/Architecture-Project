@@ -1,0 +1,59 @@
+# ==============================================================================
+# Tempo — single-binary config (production-minded defaults for small deployments)
+#
+# NOTE:
+# - This config uses local filesystem storage (works everywhere, but not HA).
+# - For real production, switch `storage.trace.backend` to s3/gcs/azure and
+#   configure replication + object storage lifecycle policies.
+# ==============================================================================
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+  trace_idle_period: 10s
+
+compactor:
+  compaction:
+    block_retention: 168h  # 7d
+
+metrics_generator:
+  registry:
+    external_labels:
+      platform: observability-platform
+  storage:
+    path: /var/tempo/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+  processor:
+    span_metrics:
+      enabled: true
+    service_graphs:
+      enabled: true
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

@@ -1,0 +1,20 @@
+# Loki storage overlay: AWS S3 (IRSA / no static keys)
+# Requires: AWS_IRSA_ROLE_ARN (IAM role for service account)
+loki:
+  storage:
+    type: s3
+    s3:
+      endpoint: ${S3_ENDPOINT}
+      region: ${S3_REGION}
+      s3ForcePathStyle: ${S3_FORCE_PATH_STYLE}
+      insecure: ${S3_INSECURE}
+    bucketNames:
+      chunks: ${LOKI_S3_BUCKET_CHUNKS}
+      ruler: ${LOKI_S3_BUCKET_RULER}
+      admin: ${LOKI_S3_BUCKET_ADMIN}
+
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    eks.amazonaws.com/role-arn: ${AWS_IRSA_ROLE_ARN}

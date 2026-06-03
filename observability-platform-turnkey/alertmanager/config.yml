@@ -1,0 +1,101 @@
+# ==============================================================================
+# Alertmanager configuration
+#
+# Routing:
+#   - critical → immediate notification (no group wait)
+#   - warning  → grouped, 5 min wait, 4 h repeat
+#
+# Receivers: configured via environment variables — set them in .env (Docker
+# Compose) or Kubernetes Secrets (see k8s/manifests/secrets/ and
+# k8s/manifests/external-secrets/).
+#
+# Docker Compose: variables are injected via the alertmanager service
+# environment section in docker/docker-compose.yml.
+#
+# Kubernetes: variables are injected from a Secret via envFrom; see
+# k8s/manifests/secrets/alertmanager-secret.yaml.
+#
+# Required env vars (set at least one receiver group):
+#   SLACK_WEBHOOK_URL       — Incoming Webhook URL from Slack app settings
+#   SLACK_CHANNEL           — Target channel, e.g. #observability-alerts
+#   PAGERDUTY_ROUTING_KEY   — PagerDuty Events API v2 routing key
+#   ALERTMANAGER_EMAIL_TO   — Recipient address for email alerts
+#   GF_SMTP_HOST / GF_SMTP_USER / GF_SMTP_PASSWORD — reuse Grafana SMTP vars
+# ==============================================================================
+
+global:
+  resolve_timeout: 5m
+  # Shared SMTP settings (reuses Grafana SMTP env vars when configured)
+  smtp_smarthost: "${GF_SMTP_HOST:-localhost:587}"
+  smtp_from: "${GF_SMTP_FROM_ADDRESS:-alertmanager@example.com}"
+  smtp_auth_username: "${GF_SMTP_USER:-}"
+  smtp_auth_password: "${GF_SMTP_PASSWORD:-}"
+
+templates: []
+
+route:
+  group_by: ["alertname", "service_name", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "default"
+
+  routes:
+    # Critical alerts fire immediately without grouping delay
+    - matchers:
+        - severity = critical
+      group_wait: 0s
+      repeat_interval: 1h
+      receiver: "critical"
+
+    # Saga compensation failures need immediate attention
+    - matchers:
+        - alertname = SagaCompensationFailed
+      group_wait: 0s
+      repeat_interval: 30m
+      receiver: "critical"
+
+receivers:
+  # ── default (warning) ────────────────────────────────────────────────────────
+  - name: "default"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_URL}"
+        channel: "${SLACK_CHANNEL:-#observability-alerts}"
+        title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}*{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        # Slack webhook URL is empty → Alertmanager will skip delivery silently when
+        # SLACK_WEBHOOK_URL is not set. Remove these configs if Slack is not used.
+
+  # ── critical ─────────────────────────────────────────────────────────────────
+  - name: "critical"
+    slack_configs:
+      - api_url: "${SLACK_WEBHOOK_URL}"
+        channel: "${SLACK_CHANNEL:-#observability-alerts}"
+        title: ':fire: [CRITICAL] {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}*{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_ROUTING_KEY}"
+        description: '{{ .GroupLabels.alertname }} — {{ .CommonAnnotations.summary }}'
+        severity: critical
+        send_resolved: true
+        # PagerDuty config is skipped when PAGERDUTY_ROUTING_KEY is empty.
+    email_configs:
+      - to: "${ALERTMANAGER_EMAIL_TO}"
+        send_resolved: true
+        # Email is skipped when ALERTMANAGER_EMAIL_TO is empty.
+
+inhibit_rules:
+  # Suppress warning-level alerts when the same service has a critical firing
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ["alertname", "service_name"]

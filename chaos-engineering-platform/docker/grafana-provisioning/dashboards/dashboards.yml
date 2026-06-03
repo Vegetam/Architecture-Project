@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: chaos-platform
+    folder: Chaos Engineering
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

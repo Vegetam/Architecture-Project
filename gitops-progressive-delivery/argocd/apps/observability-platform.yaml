@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"  # Deploy before microservices
+spec:
+  project: platform
+
+  source:
+    repoURL: https://github.com/Vegetam/observability-platform-turnkey-fixed
+    targetRevision: HEAD
+    path: k8s/manifests
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    automated:
+      prune: false    # Never auto-delete observability resources
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

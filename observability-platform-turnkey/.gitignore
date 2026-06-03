@@ -1,0 +1,37 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Terraform (from terraform-multicloud)
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Node
+node_modules/
+dist/
+
+# Docker volumes / local data
+data/
+*.local.yml
+
+# Grafana local state
+grafana/data/
+
+# Jaeger local data
+jaeger-data/
+
+# Secrets
+*.pem
+*.key
+*.crt
+secrets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

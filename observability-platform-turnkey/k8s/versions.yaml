@@ -1,0 +1,53 @@
+# Helm chart versions are pinned here for reproducible installs.
+# Update intentionally and test upgrades in staging before rolling to production.
+
+charts:
+  kubePrometheusStack:
+    repo: prometheus-community
+    chart: kube-prometheus-stack
+    version: 58.0.0
+
+  grafana:
+    repo: grafana
+    chart: grafana
+    version: 7.0.0
+
+  loki:
+    repo: grafana
+    chart: loki
+    version: 6.0.0
+
+  tempoDistributed:
+    repo: grafana
+    chart: tempo-distributed
+    version: 1.0.0
+
+  otelCollector:
+    repo: open-telemetry
+    chart: opentelemetry-collector
+    version: 0.90.0
+
+  promtail:
+    repo: grafana
+    chart: promtail
+    version: 6.0.0
+
+  minio:
+    repo: bitnami
+    chart: minio
+    version: 14.0.0
+
+  velero:
+    repo: vmware-tanzu
+    chart: velero
+    version: 6.6.0
+
+  certManager:
+    repo: jetstack
+    chart: cert-manager
+    version: 1.14.5
+
+  ingressNginx:
+    repo: ingress-nginx
+    chart: ingress-nginx
+    version: 4.10.0

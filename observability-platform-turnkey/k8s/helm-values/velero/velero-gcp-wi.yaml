@@ -1,0 +1,19 @@
+# GCP overlay (Workload Identity / no static keys)
+# Requires: GCP_GSA_EMAIL (Google Service Account email)
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: gcp
+      bucket: ${VELERO_BUCKET}
+      config:
+        serviceAccount: ${GCP_GSA_EMAIL}
+initContainers:
+  - name: velero-plugin-for-gcp
+    image: velero/velero-plugin-for-gcp:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+serviceAccount:
+  server:
+    annotations:
+      iam.gke.io/gcp-service-account: ${GCP_GSA_EMAIL}

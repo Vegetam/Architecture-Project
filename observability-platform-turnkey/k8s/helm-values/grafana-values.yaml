@@ -1,0 +1,44 @@
+# Grafana values
+# - Admin credentials come from a Secret.
+# - Configure OAuth/SSO by setting GF_AUTH_* env vars (example placeholders below).
+
+admin:
+  existingSecret: grafana-admin
+  userKey: admin-user
+  passwordKey: admin-password
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - grafana.example.com
+  tls:
+    - secretName: grafana-tls
+      hosts:
+        - grafana.example.com
+
+# Example: OAuth/OIDC (replace with your provider)
+env:
+  GF_SERVER_ROOT_URL: https://grafana.example.com
+  GF_AUTH_GENERIC_OAUTH_ENABLED: "false"
+  GF_AUTH_GENERIC_OAUTH_NAME: "OIDC"
+  GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+  GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "__SET_VIA_SECRET__"
+  GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "__SET_VIA_SECRET__"
+  GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+  GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://idp.example.com/oauth2/auth"
+  GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://idp.example.com/oauth2/token"
+  GF_AUTH_GENERIC_OAUTH_API_URL: "https://idp.example.com/oauth2/userinfo"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi

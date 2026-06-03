@@ -1,0 +1,23 @@
+# Tempo storage overlay: Azure Blob Storage (Workload Identity / federated token)
+# Requires: AZURE_CLIENT_ID (managed identity/app client id)
+# Also requires the pod label: azure.workload.identity/use: "true" (Fail Close).
+storage:
+  trace:
+    backend: azure
+    azure:
+      container_name: ${TEMPO_AZURE_CONTAINER}
+      storage_account_name: ${AZURE_STORAGE_ACCOUNT}
+      use_federated_token: true
+
+global:
+  podLabels:
+    azure.workload.identity/use: "true"
+
+tempo:
+  serviceAccount:
+    create: true
+    name: tempo
+    annotations:
+      azure.workload.identity/client-id: ${AZURE_CLIENT_ID}
+    labels:
+      azure.workload.identity/use: "true"

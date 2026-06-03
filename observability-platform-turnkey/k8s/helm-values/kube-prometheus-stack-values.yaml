@@ -1,0 +1,53 @@
+# kube-prometheus-stack values
+# - Grafana is disabled here (we deploy Grafana separately to control datasources/provisioning)
+# - Prometheus runs with 2 replicas.
+# - Optional Thanos sidecar enables HA querying + long-term storage.
+
+grafana:
+  enabled: false
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 2
+    retention: 120h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    replicas: 2
+    retention: 15d
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    # Persistent storage for the TSDB.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2
+        memory: 4Gi
+
+    # Optional: enable Thanos sidecar for HA + long-term storage.
+    # Provide object storage config via a Secret named "thanos-objstore".
+    thanos:
+      objectStorageConfig:
+        existingSecret:
+          name: thanos-objstore
+          key: objstore.yml

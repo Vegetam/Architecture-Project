@@ -1,0 +1,35 @@
+# ==============================================================================
+# Chaos Experiment — I/O Latency on PostgreSQL
+#
+# Injects 100ms disk I/O latency on the PostgreSQL pod.
+# Tests that Vault dynamic credentials survive slow DB connections and that
+# microservices handle slow queries gracefully (timeouts, retries).
+#
+# Expected behaviour:
+#   - order-service query latency increases proportionally
+#   - Connection pool does not exhaust (queries queue, not fail immediately)
+#   - Vault credential TTL refresh still works (Vault uses separate connection)
+#   - Grafana shows DB query duration spike in the PostgreSQL dashboard
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: disk-latency-postgres
+  namespace: chaos-testing
+  labels:
+    experiment-type: io-latency
+    target-service: postgres
+    risk-level: medium
+spec:
+  action: latency
+  mode: one
+  selector:
+    namespaces:
+      - database
+    labelSelectors:
+      app.kubernetes.io/name: postgresql
+  volumePath: /var/lib/postgresql/data
+  path: "**"               # affects all I/O on the data volume
+  delay: "100ms"
+  percent: 50              # affects 50% of I/O operations
+  duration: "3m"

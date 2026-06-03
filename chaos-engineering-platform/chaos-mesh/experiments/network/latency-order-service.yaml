@@ -1,0 +1,38 @@
+# ==============================================================================
+# Chaos Experiment — Network Latency on order-service
+#
+# Injects 200ms latency + 50ms jitter on all egress traffic from order-service.
+# This simulates a slow database or downstream dependency.
+#
+# Expected behaviour:
+#   - Argo Rollouts p99 latency analysis should detect the degradation in staging
+#   - Alertmanager should fire the HighP99Latency alert within 2 minutes
+#   - Circuit breaker on payment-service DestinationRule should trigger
+#     if order-service calls payment-service while degraded
+#
+# Run: kubectl apply -f chaos-mesh/experiments/network/latency-order-service.yaml
+# Stop: kubectl delete networkchaos latency-order-service -n chaos-testing
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: latency-order-service
+  namespace: chaos-testing
+  labels:
+    experiment-type: latency
+    target-service: order-service
+    risk-level: low       # low | medium | high
+spec:
+  action: delay
+  mode: one              # inject into one pod at a time (safer than all)
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: order-service
+  delay:
+    latency: "200ms"
+    jitter: "50ms"
+    correlation: "25"    # 25% correlation between consecutive packet delays
+  direction: to          # egress only (order-service → postgres, kafka)
+  duration: "5m"         # auto-stops after 5 minutes

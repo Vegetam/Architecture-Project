@@ -1,0 +1,42 @@
+# ==============================================================================
+# Chaos Experiment — HTTP Error Injection on order-service
+#
+# Injects HTTP 503 responses on 20% of requests to order-service.
+# This simulates a partially degraded upstream (downstream dependency returns errors)
+# and validates that:
+#   - The saga orchestrator triggers compensation when order creation fails
+#   - The Istio retry policy handles transient 503s transparently (< threshold)
+#   - Alertmanager fires OrderServiceErrorRate when error rate > 5%
+#   - The payment-service does NOT process payment if order creation fails
+#
+# Expected behaviour:
+#   - Saga compensation should fire for ~20% of transactions
+#   - End-to-end success rate should stay > 80% (retries absorb some errors)
+#   - No duplicate payment charges (idempotency key tested)
+#
+# Run:  kubectl apply -f chaos-mesh/experiments/http/http-error-order.yaml
+# Stop: kubectl delete httpchaos http-error-order -n chaos-testing
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: HTTPChaos
+metadata:
+  name: http-error-order
+  namespace: chaos-testing
+  labels:
+    experiment-type: http-error
+    target-service: order-service
+    risk-level: medium
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: order-service
+  target: Response           # inject on the response path
+  port: 3000
+  path: "/orders"            # only on the order creation endpoint
+  method: POST
+  code: 503                  # return 503 Service Unavailable
+  percent: 20                # 20% of matching requests
+  duration: "5m"

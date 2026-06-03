@@ -1,0 +1,12 @@
+# GCP overlay
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: gcp
+      bucket: ${VELERO_BUCKET}
+initContainers:
+  - name: velero-plugin-for-gcp
+    image: velero/velero-plugin-for-gcp:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins

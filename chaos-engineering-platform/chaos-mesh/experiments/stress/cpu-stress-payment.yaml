@@ -1,0 +1,31 @@
+# ==============================================================================
+# Chaos Experiment — CPU Stress on payment-service
+#
+# Consumes 80% of the payment-service pod's CPU limit for 5 minutes.
+# Tests that:
+#   1. HPA kicks in and scales up replicas within 60s
+#   2. p99 latency increases but stays below the 500ms Argo Rollouts threshold
+#   3. Kyverno resource limits prevent the stress from affecting other pods
+#      (cgroups enforce the container CPU limit)
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress-payment-service
+  namespace: chaos-testing
+  labels:
+    experiment-type: cpu-stress
+    target-service: payment-service
+    risk-level: low         # cgroups contain the blast radius
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: payment-service
+  stressors:
+    cpu:
+      workers: 2            # 2 goroutines burning CPU
+      load: 80              # 80% CPU load
+  duration: "5m"

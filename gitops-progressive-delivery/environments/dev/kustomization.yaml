@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: microservices-dev
+
+resources:
+  - ../base
+
+commonLabels:
+  environment: dev
+
+images:
+  - name: ghcr.io/vegetam/order-service
+    newTag: latest
+  - name: ghcr.io/vegetam/payment-service
+    newTag: latest
+  - name: ghcr.io/vegetam/saga-orchestrator
+    newTag: latest
+
+patches:
+  # Dev: 1 replica, no rollout strategy (use plain Deployment)
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+
+  # Minimal resources in dev
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 128Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 64Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "50m"
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+
+  # No HPA / PDB in dev
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+    target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler

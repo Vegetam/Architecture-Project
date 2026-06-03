@@ -1,0 +1,23 @@
+# Azure overlay (Workload Identity / federated token)
+# Requires: AZURE_CLIENT_ID (managed identity/app client id)
+# Also requires the pod label: azure.workload.identity/use: "true" (Fail Close).
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: azure
+      bucket: ${VELERO_BUCKET}
+      config:
+        resourceGroup: ${AZURE_RESOURCE_GROUP}
+        storageAccount: ${AZURE_STORAGE_ACCOUNT}
+initContainers:
+  - name: velero-plugin-for-microsoft-azure
+    image: velero/velero-plugin-for-microsoft-azure:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+podLabels:
+  azure.workload.identity/use: "true"
+serviceAccount:
+  server:
+    annotations:
+      azure.workload.identity/client-id: ${AZURE_CLIENT_ID}

@@ -1,0 +1,22 @@
+# AKS cloud profile for Tempo distributed
+# Uses managed-premium-backed PVCs for stateful parts and enables PDBs for HA.
+
+ingester:
+  persistence:
+    enabled: true
+    storageClass: managed-premium
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+compactor:
+  persistence:
+    enabled: true
+    storageClass: managed-premium
+
+distributor:
+  podDisruptionBudget:
+    maxUnavailable: 1
+
+querier:
+  podDisruptionBudget:
+    maxUnavailable: 1

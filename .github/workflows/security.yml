@@ -1,0 +1,70 @@
+name: Security
+
+on:
+  pull_request:
+    paths:
+      - "observability-platform-turnkey/**"
+      - "chaos-engineering-platform/**"
+      - ".github/workflows/security.yml"
+  push:
+    branches: [main]
+    paths:
+      - "observability-platform-turnkey/**"
+      - "chaos-engineering-platform/**"
+      - ".github/workflows/security.yml"
+  schedule:
+    - cron: "0 6 * * 1"  # weekly on Monday
+
+jobs:
+  trivy-fs:
+    name: Trivy (filesystem scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+      - name: Run Trivy scan
+        run: |
+          trivy fs \
+            --ignore-unfixed \
+            --format table \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            ./observability-platform-turnkey
+
+  yamllint:
+    name: YAML lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: observability-platform-turnkey
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: python -m pip install --upgrade pip yamllint
+      - name: Lint YAML
+        run: |
+          yamllint -d '{extends: default, rules: {line-length: {max: 140}}}' \
+            otel-collector/ prometheus/ promtail/ loki/ tempo/ alertmanager/ \
+            grafana/provisioning/ k8s/helm-values/ k8s/manifests/ docker/ gateway/
+
+  chaos-trivy-fs:
+    name: "[CHAOS] Trivy filesystem scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+      - name: Run Trivy scan
+        run: |
+          trivy fs \
+            --ignore-unfixed \
+            --format table \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            ./chaos-engineering-platform

@@ -1,0 +1,36 @@
+# Argo Rollouts Helm values
+# helm upgrade --install argo-rollouts argo/argo-rollouts \
+#   --namespace argo-rollouts --create-namespace \
+#   --version 2.37.6 \
+#   -f argo-rollouts/install/rollouts-values.yaml
+
+controller:
+  replicas: 2
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: "500m"
+    requests:
+      memory: 128Mi
+      cpu: "100m"
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: argo-rollouts
+      additionalLabels:
+        prometheus: kube-prometheus
+
+dashboard:
+  enabled: true
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - rollouts.${ARGOCD_HOSTNAME}
+    tls:
+      - secretName: rollouts-tls
+        hosts:
+          - rollouts.${ARGOCD_HOSTNAME}

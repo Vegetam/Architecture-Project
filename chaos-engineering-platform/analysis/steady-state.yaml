@@ -1,0 +1,65 @@
+# ==============================================================================
+# Steady State Hypothesis
+#
+# Before running ANY chaos experiment, these conditions must be true.
+# If the system is already degraded, chaos testing is meaningless and dangerous.
+#
+# This is a documentation file. The actual checks are run by scripts/run-experiment.sh
+# before each experiment using Prometheus queries.
+# ==============================================================================
+
+steadyState:
+  description: >
+    The Vegetam microservices platform is healthy and accepting traffic.
+    All canary analyses are passing. No active incidents.
+
+  probes:
+    - name: order-service-success-rate
+      description: order-service must have > 99% success rate before chaos
+      type: prometheus
+      endpoint: http://prometheus.observability.svc.cluster.local:9090
+      query: |
+        sum(rate(otel_http_server_duration_count{service_name="order-service",http_status_code!~"5.."}[5m]))
+        /
+        sum(rate(otel_http_server_duration_count{service_name="order-service"}[5m]))
+      threshold:
+        gte: 0.99
+
+    - name: payment-service-success-rate
+      description: payment-service must have > 99% success rate
+      type: prometheus
+      query: |
+        sum(rate(otel_http_server_duration_count{service_name="payment-service",http_status_code!~"5.."}[5m]))
+        /
+        sum(rate(otel_http_server_duration_count{service_name="payment-service"}[5m]))
+      threshold:
+        gte: 0.99
+
+    - name: order-service-p99-latency
+      description: order-service p99 latency must be < 200ms (well below 500ms rollout threshold)
+      type: prometheus
+      query: |
+        histogram_quantile(0.99,
+          rate(otel_http_server_duration_bucket{service_name="order-service"}[5m]))
+      threshold:
+        lte: 200
+
+    - name: all-pods-ready
+      description: All microservice pods must be in Ready state
+      type: kubernetes
+      resource: pods
+      namespace: microservices
+      condition: Ready
+
+    - name: no-active-rollouts
+      description: No Argo Rollouts must be in progress (paused or degraded)
+      type: kubernetes
+      resource: rollouts
+      namespace: microservices
+      condition: Healthy
+
+    - name: argocd-synced
+      description: All ArgoCD apps must be Synced (no pending changes)
+      type: argocd
+      apps: [order-service, payment-service, saga-orchestrator]
+      condition: Synced

@@ -1,0 +1,33 @@
+version: "3.9"
+
+# ==============================================================================
+# docker-compose.debug.yml
+#
+# Optional override to expose internal services to localhost for troubleshooting.
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.debug.yml up -d
+# ==============================================================================
+
+services:
+  kong:
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+      - "127.0.0.1:8001:8001"  # Admin API (localhost only)
+      - "127.0.0.1:8002:8002"  # Manager UI (localhost only)
+
+  prometheus:
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  loki:
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  tempo:
+    ports:
+      - "127.0.0.1:3200:3200"
+
+  alertmanager:
+    ports:
+      - "127.0.0.1:9093:9093"

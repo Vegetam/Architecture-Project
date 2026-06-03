@@ -1,0 +1,33 @@
+# ==============================================================================
+# Chaos Experiment — Memory Stress on order-service
+#
+# Allocates memory up to 90% of the pod's memory limit.
+# Tests OOM behaviour and Kubernetes memory limit enforcement.
+#
+# Expected behaviour:
+#   - Container is OOM-killed when it hits the limit (not the node)
+#   - Kubernetes immediately restarts the container
+#   - Other pods on the same node are NOT affected (cgroup isolation)
+#   - Alertmanager fires a high-memory alert before OOM kill
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: memory-stress-order-service
+  namespace: chaos-testing
+  labels:
+    experiment-type: memory-stress
+    target-service: order-service
+    risk-level: low
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: order-service
+  stressors:
+    memory:
+      workers: 4
+      size: "200MiB"         # Should be ~90% of the pod's memory limit
+  duration: "3m"

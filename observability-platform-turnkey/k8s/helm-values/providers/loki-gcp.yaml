@@ -1,0 +1,10 @@
+# Loki storage overlay: Google Cloud Storage (production)
+# Prefer Workload Identity via loki-gcp-wi.yaml in production.
+loki:
+  storage:
+    type: gcs
+    gcs:
+      bucket_name: ${LOKI_GCS_BUCKET}
+      # When running on GKE with Workload Identity, prefer *not* mounting a key file.
+      # If you must use a key file, provide a Kubernetes secret and set:
+      # service_account: /etc/gcs/key.json

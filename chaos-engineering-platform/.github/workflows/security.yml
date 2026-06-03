@@ -1,0 +1,129 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"   # Monday 03:00 UTC weekly scan
+
+jobs:
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          extra_args: --only-verified
+
+  rbac-review:
+    name: RBAC Least-Privilege Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check chaos-runner RBAC scope
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, glob
+
+          # The chaos-runner ClusterRole must NOT have broad wildcard verbs on core resources.
+          # It may only access chaos-mesh.org CRDs and read pods/services.
+          FORBIDDEN_CORE_VERBS = {"create", "update", "patch", "delete"}
+          ALLOWED_CORE_GROUPS  = {"chaos-mesh.org", "litmuschaos.io"}
+
+          errors = []
+          for f in glob.glob("**/*.yaml", recursive=True):
+              try:
+                  doc = yaml.safe_load(open(f))
+              except Exception:
+                  continue
+              if doc and doc.get("kind") in ("ClusterRole", "Role"):
+                  for rule in doc.get("rules", []):
+                      groups = set(rule.get("apiGroups", []))
+                      verbs  = set(rule.get("verbs", []))
+                      # Flag if core group ("") gets destructive verbs
+                      if "" in groups and verbs & FORBIDDEN_CORE_VERBS:
+                          resources = rule.get("resources", [])
+                          errors.append(
+                              f"{f}: ClusterRole grants {verbs & FORBIDDEN_CORE_VERBS} "
+                              f"on core resources {resources} — violates least-privilege"
+                          )
+                          continue
+                      print(f"  ✓ {f}: RBAC rule OK (groups={groups}, verbs={verbs})")
+
+          if errors:
+              for e in errors: print(f"  ✗ {e}", file=sys.stderr)
+              sys.exit(1)
+          print("RBAC least-privilege check passed.")
+          EOF
+
+  namespace-isolation:
+    name: Namespace Isolation Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no experiment targets production namespace
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, glob
+
+          PRODUCTION_NAMESPACES = {"microservices", "default"}
+          errors = []
+
+          for f in glob.glob("chaos-mesh/experiments/**/*.yaml", recursive=True):
+              doc = yaml.safe_load(open(f))
+              spec = doc.get("spec", {})
+              selector = spec.get("selector", {})
+              namespaces = selector.get("namespaces", [])
+              for ns in namespaces:
+                  if ns in PRODUCTION_NAMESPACES:
+                      errors.append(
+                          f"{f}: targets production namespace '{ns}' — only staging namespaces allowed"
+                      )
+              print(f"  ✓ {f}: namespaces={namespaces}")
+
+          if errors:
+              for e in errors: print(f"  ✗ {e}", file=sys.stderr)
+              sys.exit(1)
+          print("Namespace isolation audit passed.")
+          EOF
+
+  experiment-duration-check:
+    name: Experiment Duration Safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure all experiments have a maximum duration
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, glob, re
+
+          MAX_DURATION_MINUTES = 15   # no experiment should run longer than 15 minutes
+
+          errors = []
+          for f in glob.glob("chaos-mesh/experiments/**/*.yaml", recursive=True):
+              doc = yaml.safe_load(open(f))
+              duration_str = doc.get("spec", {}).get("duration", "")
+              if not duration_str:
+                  errors.append(f"{f}: missing spec.duration — experiments must be time-bounded")
+                  continue
+              m = re.match(r"(\d+)m", str(duration_str))
+              if m and int(m.group(1)) > MAX_DURATION_MINUTES:
+                  errors.append(
+                      f"{f}: duration {duration_str} exceeds max {MAX_DURATION_MINUTES}m"
+                  )
+              else:
+                  print(f"  ✓ {f}: duration={duration_str}")
+
+          if errors:
+              for e in errors: print(f"  ✗ {e}", file=sys.stderr)
+              sys.exit(1)
+          print("Duration safety check passed.")
+          EOF

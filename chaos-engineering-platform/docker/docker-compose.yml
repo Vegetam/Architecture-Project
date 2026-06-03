@@ -1,0 +1,82 @@
+version: "3.9"
+
+# ── Local chaos engineering stack ────────────────────────────────────────────
+# Starts mock target services + Prometheus + Grafana.
+# Use this to verify steady-state checks and Grafana dashboards
+# WITHOUT needing a Kubernetes cluster.
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up -d
+#   open http://localhost:3000/health   # order-service
+#   open http://localhost:3001/health   # payment-service
+#   open http://localhost:9090          # Prometheus
+#   open http://localhost:3030          # Grafana  (admin / admin)
+#
+# For actual chaos injection (NetworkChaos, PodChaos etc.) you need kind:
+#   ./scripts/local-setup.sh
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  order-service:
+    build:
+      context: ./mock-services/order-service
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks: [chaos-local]
+
+  payment-service:
+    build:
+      context: ./mock-services/payment-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks: [chaos-local]
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    networks: [chaos-local]
+    depends_on:
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3030:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana-provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [chaos-local]
+    depends_on: [prometheus]
+
+networks:
+  chaos-local:
+    driver: bridge

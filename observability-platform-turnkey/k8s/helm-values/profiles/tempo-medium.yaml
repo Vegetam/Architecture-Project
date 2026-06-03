@@ -1,0 +1,11 @@
+# Tempo medium profile
+distributor:
+  replicas: 3
+ingester:
+  replicas: 3
+querier:
+  replicas: 3
+queryFrontend:
+  replicas: 2
+compactor:
+  replicas: 1

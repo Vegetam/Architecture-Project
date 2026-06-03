@@ -1,0 +1,56 @@
+# ==============================================================================
+# AppProject: platform
+# Manages observability, ingress, cert-manager, and other platform services.
+# Only platform-team members may sync these apps.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+spec:
+  description: "Platform-level services (observability, ingress, cert-manager)"
+
+  sourceRepos:
+    - "https://github.com/Vegetam/observability-platform-turnkey-fixed"
+    - "https://github.com/Vegetam/terraform-multicloud"
+    - "https://charts.jetstack.io"
+    - "https://helm.nginx.com/stable"
+    - "https://prometheus-community.github.io/helm-charts"
+    - "https://grafana.github.io/helm-charts"
+
+  destinations:
+    - namespace: observability
+      server: "*"
+    - namespace: cert-manager
+      server: "*"
+    - namespace: ingress-nginx
+      server: "*"
+    - namespace: monitoring
+      server: "*"
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+    - group: "cert-manager.io"
+      kind: ClusterIssuer
+    - group: "argoproj.io"
+      kind: Rollout
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  roles:
+    - name: platform-admin
+      description: Full access to platform apps
+      policies:
+        - p, proj:platform:platform-admin, applications, *, platform/*, allow
+      groups:
+        - platform-team

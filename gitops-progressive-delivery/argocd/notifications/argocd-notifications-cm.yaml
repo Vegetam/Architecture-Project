@@ -1,0 +1,80 @@
+# ==============================================================================
+# ArgoCD Notifications — Slack + PagerDuty
+#
+# Secrets (set in argocd-notifications-secret):
+#   SLACK_TOKEN           — Bot token (xoxb-...)
+#   PAGERDUTY_ROUTING_KEY — Events API v2 routing key
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # ── Services ────────────────────────────────────────────────────────────────
+  service.slack: |
+    token: $slack-token
+
+  service.pagerduty: |
+    serviceKeys:
+      oncall: $pagerduty-routing-key
+
+  # ── Templates ───────────────────────────────────────────────────────────────
+  template.app-deployed: |
+    slack:
+      attachments: |
+        [{
+          "color": "#18be52",
+          "title": "✅ Deployed: {{.app.metadata.name}}",
+          "fields": [
+            {"title": "Revision", "value": "{{.app.status.sync.revision | trunc 7}}", "short": true},
+            {"title": "Environment", "value": "{{.app.metadata.namespace}}", "short": true},
+            {"title": "Author",  "value": "{{(call .repo.GetCommitMetadata .app.status.sync.revision).Author}}", "short": true}
+          ],
+          "footer": "ArgoCD",
+          "ts": {{now | unixEpoch}}
+        }]
+
+  template.app-sync-failed: |
+    slack:
+      attachments: |
+        [{
+          "color": "#E96D76",
+          "title": "❌ Sync Failed: {{.app.metadata.name}}",
+          "text": "{{.app.status.conditions | toJson}}",
+          "footer": "ArgoCD"
+        }]
+
+  template.app-health-degraded: |
+    slack:
+      attachments: |
+        [{
+          "color": "#E96D76",
+          "title": ":fire: Degraded: {{.app.metadata.name}}",
+          "text": "{{.app.status.conditions | toJson}}",
+          "footer": "ArgoCD"
+        }]
+    pagerduty:
+      summary: "{{.app.metadata.name}} health is Degraded"
+      severity: critical
+      source: "{{.app.metadata.name}}"
+      component: argocd
+      timestamp: "{{now}}"
+
+  # ── Triggers ────────────────────────────────────────────────────────────────
+  trigger.on-deployed: |
+    - when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+      send: [app-deployed]
+
+  trigger.on-sync-failed: |
+    - when: app.status.operationState.phase in ['Error', 'Failed']
+      send: [app-sync-failed]
+
+  trigger.on-health-degraded: |
+    - when: app.status.health.status == 'Degraded'
+      send: [app-health-degraded]
+
+  # ── Default subscriptions (can be overridden per-app via annotations) ───────
+  defaultTriggers: |
+    - on-sync-failed
+    - on-health-degraded

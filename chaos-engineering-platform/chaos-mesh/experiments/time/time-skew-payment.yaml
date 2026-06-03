@@ -1,0 +1,38 @@
+# ==============================================================================
+# Chaos Experiment — Time Skew on payment-service
+#
+# Injects a +30 second clock skew on payment-service pods.
+# This simulates NTP drift or clock sync failure, which can break:
+#   - JWT token validation (iat/exp claims)
+#   - Distributed transaction ordering in the saga orchestrator
+#   - Kafka message timestamp ordering
+#
+# Expected behaviour:
+#   - Tokens signed by payment-service may be rejected by order-service (clock skew > tolerance)
+#   - Alertmanager should fire ClockSkewDetected if Prometheus node_time_seconds diverges
+#   - Saga orchestrator should handle out-of-order timestamps gracefully (idempotency key)
+#
+# Run:  kubectl apply -f chaos-mesh/experiments/time/time-skew-payment.yaml
+# Stop: kubectl delete timechaos time-skew-payment -n chaos-testing
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: TimeChaos
+metadata:
+  name: time-skew-payment
+  namespace: chaos-testing
+  labels:
+    experiment-type: time-skew
+    target-service: payment-service
+    risk-level: medium
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: payment-service
+  timeOffset: "+30s"           # 30 seconds ahead — typical NTP drift scenario
+  clockIds:
+    - CLOCK_REALTIME
+    - CLOCK_MONOTONIC
+  duration: "5m"

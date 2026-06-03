@@ -1,0 +1,19 @@
+# Example ServiceMonitor for workloads that expose Prometheus metrics.
+# Label your Service with: observability.scrape=true
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: example-app
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      observability.scrape: "true"
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      path: /metrics

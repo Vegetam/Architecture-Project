@@ -1,0 +1,7 @@
+# Prometheus small profile
+prometheus:
+  prometheusSpec:
+    replicas: 2
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2

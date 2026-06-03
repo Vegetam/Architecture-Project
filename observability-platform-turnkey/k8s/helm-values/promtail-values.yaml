@@ -1,0 +1,27 @@
+# Promtail DaemonSet values (Kubernetes)
+# Reads pod logs from host paths. No Docker socket is required.
+
+daemonset:
+  enabled: true
+
+tolerations: []
+
+extraVolumes:
+  - name: varlogpods
+    hostPath:
+      path: /var/log/pods
+  - name: varlogcontainers
+    hostPath:
+      path: /var/log/containers
+
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: varlogcontainers
+    mountPath: /var/log/containers
+    readOnly: true
+
+config:
+  clients:
+    - url: http://loki-gateway.observability.svc:80/loki/api/v1/push

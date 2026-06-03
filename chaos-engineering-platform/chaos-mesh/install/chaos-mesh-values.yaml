@@ -1,0 +1,68 @@
+# ==============================================================================
+# Chaos Mesh Helm Values — production install
+#
+# Chaos Mesh is the primary fault injection engine.
+# It runs as a controller + per-node daemons.
+# The dashboard is protected behind Istio AuthorizationPolicy.
+# ==============================================================================
+
+controllerManager:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Chaos Dashboard (web UI for designing + running experiments)
+dashboard:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 2333
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Restrict access — chaos dashboard should NOT be public
+      nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12"
+    hosts:
+      - name: chaos.vegetam.io
+        tls: true
+        tlsSecret: chaos-dashboard-tls
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  # RBAC: only platform engineers can create experiments
+  securityMode: true
+
+# Enable metrics for Prometheus scraping
+metrics:
+  enabled: true
+  port: 10080
+
+# Namespace scope (empty = cluster-wide, which is what we want)
+clusterScoped: true
+
+# RBAC for Chaos Mesh service accounts
+rbac:
+  create: true

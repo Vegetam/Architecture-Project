@@ -1,0 +1,11 @@
+# Tempo large profile (multi-zone recommended)
+distributor:
+  replicas: 6
+ingester:
+  replicas: 6
+querier:
+  replicas: 6
+queryFrontend:
+  replicas: 3
+compactor:
+  replicas: 2

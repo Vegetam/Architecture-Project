@@ -1,0 +1,23 @@
+# Loki storage overlay: Azure Blob Storage (Workload Identity / federated token)
+# Requires: AZURE_CLIENT_ID (managed identity/app client id)
+# Also requires the pod label: azure.workload.identity/use: "true" (Fail Close).
+loki:
+  podLabels:
+    azure.workload.identity/use: "true"
+  storage:
+    type: azure
+    bucketNames:
+      chunks: ${LOKI_AZURE_CONTAINER_CHUNKS}
+      ruler: ${LOKI_AZURE_CONTAINER_RULER}
+      admin: ${LOKI_AZURE_CONTAINER_ADMIN}
+    azure:
+      accountName: ${AZURE_STORAGE_ACCOUNT}
+      useFederatedToken: true
+
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    azure.workload.identity/client-id: ${AZURE_CLIENT_ID}
+  labels:
+    azure.workload.identity/use: "true"

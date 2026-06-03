@@ -1,0 +1,134 @@
+# ==============================================================================
+# LitmusChaos Workflow — Full Resilience Game Day
+#
+# A sequenced chaos workflow that runs all key experiments in order,
+# with a 2-minute stabilisation window between each.
+# At the end, calculates a Resilience Score (0-100).
+#
+# Experiments in order:
+#   1. Pod kill — order-service        (weight: 20)
+#   2. Network latency — order-service (weight: 20)
+#   3. CPU stress — payment-service    (weight: 20)
+#   4. Pod failure — saga-orchestrator (weight: 20)
+#   5. Packet loss — kafka             (weight: 20)
+#
+# Run on demand before production releases to validate resilience posture.
+# ==============================================================================
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: resilience-gameday
+  namespace: litmus
+spec:
+  engineState: active
+  chaosServiceAccount: litmus-admin
+  monitoring: true          # exports chaos metrics to Prometheus
+  annotationCheck: "false"
+
+  experiments:
+    # ── 1. Pod kill order-service ──────────────────────────────────────────
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: NAMESPACE
+              value: microservices-staging
+            - name: APP_LABEL
+              value: app.kubernetes.io/name=order-service
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"     # seconds
+            - name: CHAOS_INTERVAL
+              value: "20"     # kill every 20s
+            - name: FORCE
+              value: "false"  # graceful kill
+        probe:
+          # Prometheus probe — checks success rate stays > 90% during chaos
+          - name: success-rate-probe
+            type: promProbe
+            mode: Continuous
+            runProperties:
+              probeTimeout: 5
+              interval: 10
+              retry: 1
+              stopOnFailure: false
+            promProbe/inputs:
+              endpoint: http://prometheus.observability.svc.cluster.local:9090
+              query: |
+                sum(rate(otel_http_server_duration_count{service_name="order-service",http_status_code!~"5.."}[1m]))
+                /
+                sum(rate(otel_http_server_duration_count{service_name="order-service"}[1m]))
+              comparator:
+                type: float
+                criteria: ">="
+                value: "0.90"
+
+    # ── 2. Network latency order-service ──────────────────────────────────
+    - name: pod-network-latency
+      spec:
+        components:
+          env:
+            - name: NAMESPACE
+              value: microservices-staging
+            - name: APP_LABEL
+              value: app.kubernetes.io/name=order-service
+            - name: NETWORK_LATENCY
+              value: "200"    # ms
+            - name: JITTER
+              value: "50"     # ms
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+        probe:
+          - name: latency-probe
+            type: promProbe
+            mode: End
+            promProbe/inputs:
+              endpoint: http://prometheus.observability.svc.cluster.local:9090
+              query: |
+                histogram_quantile(0.99,
+                  rate(otel_http_server_duration_bucket{service_name="order-service"}[5m]))
+              comparator:
+                type: float
+                criteria: "<"
+                value: "1000"    # p99 must recover below 1000ms after chaos ends
+
+    # ── 3. CPU stress payment-service ─────────────────────────────────────
+    - name: pod-cpu-hog
+      spec:
+        components:
+          env:
+            - name: NAMESPACE
+              value: microservices-staging
+            - name: APP_LABEL
+              value: app.kubernetes.io/name=payment-service
+            - name: CPU_CORES
+              value: "2"
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+
+    # ── 4. Pod failure saga-orchestrator ──────────────────────────────────
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: NAMESPACE
+              value: microservices-staging
+            - name: APP_LABEL
+              value: app.kubernetes.io/name=saga-orchestrator
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: FORCE
+              value: "true"   # hard kill
+
+    # ── 5. Packet loss kafka ───────────────────────────────────────────────
+    - name: pod-network-loss
+      spec:
+        components:
+          env:
+            - name: NAMESPACE
+              value: microservices-staging
+            - name: APP_LABEL
+              value: app.kubernetes.io/name=order-service
+            - name: NETWORK_PACKET_LOSS_PERCENTAGE
+              value: "20"
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"

@@ -1,0 +1,103 @@
+# ==============================================================================
+# Rollout: payment-service  (Blue/Green strategy)
+#
+# Blue/Green is used for payment-service because:
+#   - Financial transactions need hard cutover, not split traffic
+#   - Cannot have two versions processing payments simultaneously
+#   - Instant rollback is critical for payment failures
+#
+# Promotion flow:
+#   1. New version deployed to Green (zero traffic)
+#   2. Analysis runs against Green using synthetic/smoke tests
+#   3. Human approval OR auto-promotion after analysis passes
+#   4. Traffic switches from Blue → Green (atomic)
+#   5. Blue kept alive for 5 minutes (instant rollback window)
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: payment-service
+  namespace: microservices
+  labels:
+    app: payment-service
+    team: platform
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+
+  selector:
+    matchLabels:
+      app: payment-service
+
+  template:
+    metadata:
+      labels:
+        app: payment-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3002"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 90   # Allow in-flight payments to complete
+      containers:
+        - name: payment-service
+          image: ghcr.io/vegetam/payment-service:latest
+          ports:
+            - containerPort: 3002
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability.svc.cluster.local:4318
+            - name: OTEL_SERVICE_NAME
+              value: payment-service
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: "500m"
+            requests:
+              memory: 128Mi
+              cpu: "100m"
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3002
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 3002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+  strategy:
+    blueGreen:
+      activeService: payment-service-active     # Receives live traffic
+      previewService: payment-service-preview   # Green (new version, no traffic)
+
+      # Run analysis against preview before promoting
+      prePromotionAnalysis:
+        templates:
+          - templateName: success-rate
+          - templateName: latency-p99
+        args:
+          - name: service-name
+            value: payment-service
+
+      # Verify the new version is healthy after promotion
+      postPromotionAnalysis:
+        templates:
+          - templateName: success-rate
+        args:
+          - name: service-name
+            value: payment-service
+
+      # Manual approval required for production payment service promotion
+      autoPromotionEnabled: false
+
+      # Keep old (Blue) version alive for 5 minutes after promotion
+      # Enables instant rollback: kubectl argo rollouts undo payment-service
+      scaleDownDelaySeconds: 300

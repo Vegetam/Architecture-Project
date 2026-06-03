@@ -1,0 +1,34 @@
+# ==============================================================================
+# Chaos Experiment — Network Partition on payment-service
+#
+# Severs ALL network traffic to payment-service for 2 minutes.
+# This is the most severe test — simulates a complete pod network failure.
+#
+# Expected behaviour:
+#   - saga-orchestrator must detect the failure and trigger compensation
+#   - No payment charges should be duplicated or lost
+#   - Alertmanager fires PaymentServiceDown within 30s
+#   - ArgoCD shows degraded health on payment-service rollout
+#
+# ⚠ RISK LEVEL: HIGH — only run in staging, never in production
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: partition-payment-service
+  namespace: chaos-testing
+  labels:
+    experiment-type: partition
+    target-service: payment-service
+    risk-level: high
+    environment: staging-only
+spec:
+  action: partition
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging    # staging namespace ONLY
+    labelSelectors:
+      app.kubernetes.io/name: payment-service
+  direction: both                # cuts all ingress AND egress
+  duration: "2m"

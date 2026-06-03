@@ -1,0 +1,8 @@
+# Overlay for local/dev when using MinIO deployed in the same namespace.
+# Apply on top of tempo-distributed-s3-values.yaml.
+
+# Update the Secret (k8s/manifests/secrets/tempo-s3-secret.yaml) like:
+# - AWS_ACCESS_KEY_ID=minio
+# - AWS_SECRET_ACCESS_KEY=minio12345
+# - TEMPO_S3_ENDPOINT=minio.observability.svc:9000
+# - TEMPO_S3_INSECURE=true

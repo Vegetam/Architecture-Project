@@ -1,0 +1,17 @@
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: ${VELERO_BUCKET}
+      default: true
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+credentials:
+  useSecret: false

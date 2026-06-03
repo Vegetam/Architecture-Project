@@ -1,0 +1,34 @@
+# ==============================================================================
+# Chaos Experiment — Pod Kill on order-service
+#
+# Randomly kills one order-service pod every 2 minutes.
+# Tests that the Rollout replaces the pod quickly and that Kubernetes
+# service routing stops sending traffic to the dead pod immediately.
+#
+# Expected behaviour:
+#   - New pod starts within 30s (readiness probe passes)
+#   - Error rate spike is < 5% and lasts < 60s
+#   - Argo Rollouts success-rate analysis does NOT abort (spike too short)
+#   - HPA maintains the minimum replica count
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-order-service
+  namespace: chaos-testing
+  labels:
+    experiment-type: pod-kill
+    target-service: order-service
+    risk-level: low
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: order-service
+  gracePeriod: 0           # immediate kill (tests abrupt failure, not graceful shutdown)
+  duration: "10m"
+  scheduler:
+    cron: "@every 2m"      # kill one pod every 2 minutes during the experiment

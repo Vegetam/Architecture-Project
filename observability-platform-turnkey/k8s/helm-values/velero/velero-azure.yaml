@@ -1,0 +1,15 @@
+# Azure overlay
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: azure
+      bucket: ${VELERO_BUCKET}
+      config:
+        resourceGroup: ${AZURE_RESOURCE_GROUP}
+        storageAccount: ${AZURE_STORAGE_ACCOUNT}
+initContainers:
+  - name: velero-plugin-for-microsoft-azure
+    image: velero/velero-plugin-for-microsoft-azure:v1.9.2
+    volumeMounts:
+      - mountPath: /target
+        name: plugins

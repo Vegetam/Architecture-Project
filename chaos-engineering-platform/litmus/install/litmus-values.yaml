@@ -1,0 +1,61 @@
+# ==============================================================================
+# LitmusChaos Helm Values
+#
+# LitmusChaos complements Chaos Mesh with:
+#   - ChaosWorkflows (sequential experiment pipelines with pass/fail criteria)
+#   - Resilience Score calculation (quantified chaos results)
+#   - ChaosHub (library of pre-built experiment templates)
+#   - Integration with Argo Workflows for complex experiment orchestration
+# ==============================================================================
+
+portal:
+  frontend:
+    service:
+      type: ClusterIP
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  server:
+    graphqlServer:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    authServer:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+  mongodb:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+  host: litmus.vegetam.io
+  tls: true
+  tlsSecret: litmus-tls

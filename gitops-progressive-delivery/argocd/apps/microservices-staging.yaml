@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: microservices-staging
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    notifications.argoproj.io/subscribe.on-deployed.slack: deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: alerts
+spec:
+  project: microservices
+
+  source:
+    repoURL: https://github.com/Vegetam/gitops-progressive-delivery
+    targetRevision: HEAD
+    path: environments/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: microservices-staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    # Argo Rollouts manages replica count during canary — ignore drift
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+    # HPA manages replicas at runtime
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

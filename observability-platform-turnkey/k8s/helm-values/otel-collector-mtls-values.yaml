@@ -1,0 +1,91 @@
+mode: deployment
+
+serviceAccount:
+  create: true
+
+# Expose Collector metrics for Prometheus scraping.
+ports:
+  metrics:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          tls:
+            cert_file: /etc/otel/tls/server/tls.crt
+            key_file: /etc/otel/tls/server/tls.key
+            client_ca_file: /etc/otel/tls/ca/tls.crt
+            client_auth_type: RequireAndVerifyClientCert
+        http:
+          tls:
+            cert_file: /etc/otel/tls/server/tls.crt
+            key_file: /etc/otel/tls/server/tls.key
+            client_ca_file: /etc/otel/tls/ca/tls.crt
+            client_auth_type: RequireAndVerifyClientCert
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 20
+    batch: {}
+
+  exporters:
+    otlp/tempo:
+      endpoint: tempo-distributed-distributor.observability.svc:4317
+      tls:
+        insecure: true
+
+    loki:
+      endpoint: http://loki-gateway.observability.svc:80/loki/api/v1/push
+
+    # Prometheus scrapes this endpoint (ServiceMonitor in k8s/manifests/servicemonitors/)
+    prometheus:
+      endpoint: 0.0.0.0:8889
+      namespace: otel
+      resource_to_telemetry_conversion:
+        enabled: true
+
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp/tempo]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [prometheus]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [loki]
+
+extraVolumes:
+  - name: otel-server-tls
+    secret:
+      secretName: otel-collector-server-tls
+  - name: otel-mtls-ca
+    secret:
+      secretName: otel-mtls-ca
+
+extraVolumeMounts:
+  - name: otel-server-tls
+    mountPath: /etc/otel/tls/server
+    readOnly: true
+  - name: otel-mtls-ca
+    mountPath: /etc/otel/tls/ca
+    readOnly: true
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi

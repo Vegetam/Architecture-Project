@@ -1,0 +1,14 @@
+# Tempo storage overlay: Google Cloud Storage (Workload Identity / no static keys)
+# Requires: GCP_GSA_EMAIL (Google Service Account email)
+storage:
+  trace:
+    backend: gcs
+    gcs:
+      bucket_name: ${TEMPO_GCS_BUCKET}
+
+tempo:
+  serviceAccount:
+    create: true
+    name: tempo
+    annotations:
+      iam.gke.io/gcp-service-account: ${GCP_GSA_EMAIL}

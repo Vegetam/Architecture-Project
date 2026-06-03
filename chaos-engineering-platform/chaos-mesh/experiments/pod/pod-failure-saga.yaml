@@ -1,0 +1,31 @@
+# ==============================================================================
+# Chaos Experiment — Pod Failure on saga-orchestrator
+#
+# Makes the saga-orchestrator pod fail (crash loop) for 3 minutes.
+# Tests that in-flight sagas are correctly recovered when the orchestrator
+# restarts (relies on the saga state machine persisting state to Kafka).
+#
+# Expected behaviour:
+#   - In-flight sagas are paused (not lost or duplicated)
+#   - When saga-orchestrator recovers, it replays from Kafka offset
+#   - No compensating transactions are triggered spuriously
+#   - Total saga completion time increases but correctness is maintained
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-failure-saga-orchestrator
+  namespace: chaos-testing
+  labels:
+    experiment-type: pod-failure
+    target-service: saga-orchestrator
+    risk-level: medium
+spec:
+  action: pod-failure      # makes the pod fail without killing it (simulates OOM or crash)
+  mode: one
+  selector:
+    namespaces:
+      - microservices-staging
+    labelSelectors:
+      app.kubernetes.io/name: saga-orchestrator
+  duration: "3m"

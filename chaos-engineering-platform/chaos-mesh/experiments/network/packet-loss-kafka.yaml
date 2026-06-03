@@ -1,0 +1,39 @@
+# ==============================================================================
+# Chaos Experiment — Packet Loss on Kafka connection
+#
+# Injects 20% packet loss on all microservices → Kafka traffic.
+# Tests that producers retry correctly and consumers handle rebalancing.
+#
+# Expected behaviour:
+#   - Kafka producer retries absorb the packet loss (no message loss)
+#   - Consumer group rebalancing completes within 30s
+#   - kafka-lag-exporter shows temporary lag spike, then recovery
+#   - No duplicate processing due to idempotent producers
+#
+# Risk level: medium — producers and consumers should handle this transparently
+# ==============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: packet-loss-kafka
+  namespace: chaos-testing
+  labels:
+    experiment-type: packet-loss
+    target-service: kafka
+    risk-level: medium
+spec:
+  action: loss
+  mode: all                # inject into all microservice pods
+  selector:
+    namespaces:
+      - microservices-staging
+  loss:
+    loss: "20"             # 20% packet loss
+    correlation: "25"
+  target:
+    mode: all
+    selector:
+      namespaces:
+        - kafka            # only affects traffic going TO kafka namespace
+  direction: to
+  duration: "3m"

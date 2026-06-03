@@ -1,0 +1,125 @@
+name: Validate Chaos Platform
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: default
+            rules:
+              line-length:
+                max: 120
+              truthy:
+                allowed-values: ["true", "false"]
+
+  chaos-manifest-validate:
+    name: Chaos Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Chaos Mesh manifests
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, glob
+
+          VALID_KINDS = {
+              "NetworkChaos", "PodChaos", "StressChaos", "IOChaos",
+              "TimeChaos", "DNSChaos", "HTTPChaos", "Schedule", "Workflow"
+          }
+          VALID_ACTIONS = {
+              "NetworkChaos": {"delay", "loss", "duplicate", "corrupt", "bandwidth", "partition"},
+              "PodChaos":     {"pod-kill", "pod-failure", "container-kill"},
+              "StressChaos":  {"cpu-stress", "memory-stress"},
+              "IOChaos":      {"latency", "fault", "attrOverride"},
+          }
+          REQUIRED_LABELS = ["experiment-type", "risk-level"]
+
+          errors = []
+          for f in glob.glob("chaos-mesh/experiments/**/*.yaml", recursive=True):
+              with open(f) as fh:
+                  try:
+                      doc = yaml.safe_load(fh)
+                  except yaml.YAMLError as e:
+                      errors.append(f"{f}: YAML error: {e}")
+                      continue
+
+              kind = doc.get("kind", "")
+              if kind not in VALID_KINDS:
+                  errors.append(f"{f}: unknown kind '{kind}'")
+                  continue
+
+              labels = doc.get("metadata", {}).get("labels", {})
+              for label in REQUIRED_LABELS:
+                  if label not in labels:
+                      errors.append(f"{f}: missing required label '{label}'")
+
+              action = doc.get("spec", {}).get("action", "")
+              if kind in VALID_ACTIONS and action not in VALID_ACTIONS[kind]:
+                  errors.append(f"{f}: invalid action '{action}' for {kind}")
+
+              # Require duration to be set (prevent infinite experiments)
+              if "duration" not in doc.get("spec", {}):
+                  errors.append(f"{f}: missing spec.duration — all experiments must have a time limit")
+
+              print(f"  ✓ {f} ({kind}/{action})")
+
+          if errors:
+              for e in errors: print(f"  ✗ {e}", file=sys.stderr)
+              sys.exit(1)
+          print("All chaos manifests valid.")
+          EOF
+
+      - name: Check no production experiments target production namespace
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, glob
+
+          errors = []
+          for f in glob.glob("chaos-mesh/experiments/**/*.yaml", recursive=True):
+              with open(f) as fh:
+                  doc = yaml.safe_load(fh)
+              risk = doc.get("metadata", {}).get("labels", {}).get("risk-level", "low")
+              spec_str = str(doc.get("spec", {}))
+              # High-risk experiments must NOT target the production namespace
+              if risk == "high" and "microservices\"" in spec_str and "staging" not in spec_str:
+                  errors.append(f"{f}: HIGH RISK experiment targeting production namespace is not allowed")
+              print(f"  ✓ {f} (risk={risk})")
+
+          if errors:
+              for e in errors: print(f"  ✗ {e}", file=sys.stderr)
+              sys.exit(1)
+          print("Namespace safety check passed.")
+          EOF
+
+  steady-state-probes-validate:
+    name: Validate Steady State YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate steady-state.yaml
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys
+
+          with open("analysis/steady-state.yaml") as f:
+              doc = yaml.safe_load(f)
+
+          assert "steadyState" in doc
+          assert "probes" in doc["steadyState"]
+          assert len(doc["steadyState"]["probes"]) >= 3, "Need at least 3 steady-state probes"
+          for probe in doc["steadyState"]["probes"]:
+              assert "name" in probe
+              assert "type" in probe
+          print(f"Steady state: {len(doc['steadyState']['probes'])} probes defined. Valid.")
+          EOF

@@ -1,0 +1,70 @@
+# Render this manifest through k8s/scripts/apply-security.sh.
+# Optional overrides:
+# - OBS_NAMESPACE (default: observability)
+# - OTEL_COLLECTOR_SERVICE_NAME (default: otel-collector)
+#
+# This creates:
+# - a namespace-scoped CA (otel-mtls-ca)
+# - an Issuer that signs certs with that CA (otel-mtls-issuer)
+# - a server cert for the OTel Collector (otel-collector-server-tls)
+# - an optional client cert for workloads (otel-collector-client-tls)
+#
+# For production, you may want to use your PKI/Vault instead of a self-managed CA.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otel-mtls-ca
+  namespace: ${OBS_NAMESPACE}
+spec:
+  isCA: true
+  commonName: otel-mtls-ca
+  secretName: otel-mtls-ca
+  duration: 8760h # 365d
+  renewBefore: 720h # 30d
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: otel-mtls-issuer
+  namespace: ${OBS_NAMESPACE}
+spec:
+  ca:
+    secretName: otel-mtls-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otel-collector-server
+  namespace: ${OBS_NAMESPACE}
+spec:
+  secretName: otel-collector-server-tls
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  commonName: ${OTEL_COLLECTOR_SERVICE_NAME}.${OBS_NAMESPACE}.svc
+  dnsNames:
+    - ${OTEL_COLLECTOR_SERVICE_NAME}
+    - ${OTEL_COLLECTOR_SERVICE_NAME}.${OBS_NAMESPACE}
+    - ${OTEL_COLLECTOR_SERVICE_NAME}.${OBS_NAMESPACE}.svc
+  issuerRef:
+    name: otel-mtls-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otel-collector-client
+  namespace: ${OBS_NAMESPACE}
+spec:
+  secretName: otel-collector-client-tls
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  commonName: otel-client
+  usages:
+    - client auth
+  issuerRef:
+    name: otel-mtls-issuer
+    kind: Issuer

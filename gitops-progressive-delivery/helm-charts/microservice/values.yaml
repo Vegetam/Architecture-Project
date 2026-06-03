@@ -1,0 +1,156 @@
+# ==============================================================================
+# Default values for the microservice Helm chart.
+# Override per-service in environments/<env>/values/<service>.yaml
+# ==============================================================================
+
+# -- Service identity
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/vegetam/order-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets:
+  - name: ghcr-credentials
+
+# -- Pod replica count (ignored when rollout.enabled=true and HPA is active)
+replicaCount: 2
+
+# -- Container port
+service:
+  port: 3000
+  type: ClusterIP
+  annotations: {}
+
+# -- HTTP path for ingress routing
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  host: ""
+  path: /
+  pathType: Prefix
+  tls: []
+
+# -- Resource limits — tune per environment via Kustomize patches
+resources:
+  limits:
+    memory: 256Mi
+    cpu: "500m"
+  requests:
+    memory: 128Mi
+    cpu: "100m"
+
+# -- Health check paths
+healthCheck:
+  readiness:
+    path: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+  liveness:
+    path: /health/live
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 3
+
+# -- OpenTelemetry env vars injected into every container
+otel:
+  enabled: true
+  collectorEndpoint: http://otel-collector.observability.svc.cluster.local:4318
+  # serviceName defaults to .Release.Name
+
+# -- Extra environment variables (plain values only — use secrets for credentials)
+env: []
+# - name: NODE_ENV
+#   value: production
+
+# -- References to Kubernetes Secrets for sensitive env vars
+envFrom: []
+# - secretRef:
+#     name: order-service-secrets
+
+# -- Argo Rollouts progressive delivery
+rollout:
+  enabled: true        # false → falls back to a standard Deployment
+  strategy: canary     # canary | blueGreen
+
+  canary:
+    canaryService: ""  # defaults to <fullname>-canary
+    stableService: ""  # defaults to <fullname>-stable
+    steps:
+      - setWeight: 5
+      - pause: {duration: 2m}
+      - setWeight: 25
+      - pause: {duration: 3m}
+      - setWeight: 50
+      - pause: {duration: 5m}
+    analysis:
+      enabled: true
+      templates:
+        - success-rate
+        - latency-p99
+      latencyThresholdMs: "500"
+
+  blueGreen:
+    activeService: ""   # defaults to <fullname>-active
+    previewService: ""  # defaults to <fullname>-preview
+    autoPromotionEnabled: false
+    scaleDownDelaySeconds: 300
+
+# -- Horizontal Pod Autoscaler
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# -- Pod Disruption Budget (ensures at least 1 pod stays up during node drain)
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# -- Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: true
+  namespace: ""       # defaults to Release.Namespace
+  interval: 15s
+  path: /metrics
+  port: http
+  additionalLabels:
+    prometheus: kube-prometheus
+
+# -- Node selector, tolerations, affinity
+nodeSelector: {}
+tolerations: []
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - "{{ .Release.Name }}"
+          topologyKey: kubernetes.io/hostname
+
+# -- Security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# -- Extra volumes/mounts (e.g. for config files, TLS certs)
+extraVolumes: []
+extraVolumeMounts: []
