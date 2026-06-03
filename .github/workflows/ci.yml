@@ -37,25 +37,27 @@ jobs:
     name: Detect changed projects
     runs-on: ubuntu-latest
     outputs:
-      observability: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.observability == 'true' }}
-      gitops: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.gitops == 'true' }}
-      chaos: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.chaos == 'true' }}
+      observability: ${{ steps.check.outputs.observability }}
+      gitops: ${{ steps.check.outputs.gitops }}
+      chaos: ${{ steps.check.outputs.chaos }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        if: github.event_name != 'workflow_dispatch'
         with:
-          filters: |
-            observability:
-              - 'observability-platform-turnkey/**'
-            gitops:
-              - 'gitops-progressive-delivery/services/**'
-              - 'gitops-progressive-delivery/helm-charts/**'
-              - 'gitops-progressive-delivery/environments/**'
-              - 'gitops-progressive-delivery/argo-rollouts/**'
-            chaos:
-              - 'chaos-engineering-platform/**'
+          fetch-depth: 2
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "observability=true" >> $GITHUB_OUTPUT
+            echo "gitops=true"        >> $GITHUB_OUTPUT
+            echo "chaos=true"         >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          obs=$(git diff --name-only HEAD~1 HEAD | grep -c "^observability-platform-turnkey/" || true)
+          gop=$(git diff --name-only HEAD~1 HEAD | grep -c "^gitops-progressive-delivery/"    || true)
+          cha=$(git diff --name-only HEAD~1 HEAD | grep -c "^chaos-engineering-platform/"     || true)
+          echo "observability=$([ "$obs" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "gitops=$([ "$gop" -gt 0 ]        && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "chaos=$([ "$cha" -gt 0 ]          && echo true || echo false)" >> $GITHUB_OUTPUT
 
   # ═══════════════════════════════════════════════════════════
   #  OBSERVABILITY-PLATFORM-TURNKEY
