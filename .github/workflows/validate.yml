@@ -2,13 +2,13 @@ name: Validate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
     paths:
       - "gitops-progressive-delivery/**"
       - "chaos-engineering-platform/**"
       - ".github/workflows/validate.yml"
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "gitops-progressive-delivery/**"
       - "chaos-engineering-platform/**"
