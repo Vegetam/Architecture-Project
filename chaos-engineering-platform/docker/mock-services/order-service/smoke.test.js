@@ -1,74 +1,56 @@
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
 const http = require('http');
 const { spawn } = require('child_process');
 
 const PORT = 3099;
-process.env.PORT = String(PORT);
+
+function request(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const opts = {
+      hostname: 'localhost', port: PORT, path, method,
+      headers: { 'Content-Type': 'application/json', ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}) }
+    };
+    const req = http.request(opts, (res) => {
+      let data = '';
+      res.on('data', d => data += d);
+      res.on('end', () => {
+        const isJson = res.headers['content-type']?.includes('json');
+        resolve({ status: res.statusCode, body: isJson ? JSON.parse(data) : data });
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
 
 let proc;
 
-function request(path) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://localhost:${PORT}${path}`, (res) => {
-      let body = '';
-      res.on('data', d => body += d);
-      res.on('end', () => resolve({ status: res.statusCode, body: res.headers['content-type']?.includes('json') ? JSON.parse(body) : body }));
-    }).on('error', reject);
-  });
-}
+before(async () => {
+  proc = spawn('node', ['server.js'], { cwd: __dirname, env: { ...process.env, PORT: String(PORT) } });
+  await new Promise(r => setTimeout(r, 500));
+});
 
-function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+after(() => { if (proc) proc.kill('SIGTERM'); });
 
-async function run() {
-  proc = spawn('node', ['server.js'], { env: { ...process.env, PORT: String(PORT) } });
-  proc.stderr.on('data', d => process.stderr.write(d));
-  await wait(500);
+test('GET /health returns 200 with status ok', async () => {
+  const r = await request('GET', '/health');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'ok');
+  assert.equal(r.body.service, 'order-service');
+});
 
-  let passed = 0;
-  let failed = 0;
+test('POST /orders returns 201 with order id', async () => {
+  const r = await request('POST', '/orders', { item: 'test-widget' });
+  assert.equal(r.status, 201);
+  assert.ok(r.body.id, 'response must include an order id');
+  assert.equal(r.body.status, 'created');
+});
 
-  async function test(name, fn) {
-    try {
-      await fn();
-      console.log(`  PASS  ${name}`);
-      passed++;
-    } catch (e) {
-      console.log(`  FAIL  ${name}: ${e.message}`);
-      failed++;
-    }
-  }
-
-  await test('GET /health returns 200', async () => {
-    const r = await request('/health');
-    if (r.status !== 200) throw new Error(`expected 200, got ${r.status}`);
-    if (r.body.status !== 'ok') throw new Error(`expected status ok, got ${r.body.status}`);
-  });
-
-  await test('POST /orders returns 201', async () => {
-    const res = await new Promise((resolve, reject) => {
-      const body = JSON.stringify({ item: 'test-item' });
-      const req = http.request({ hostname: 'localhost', port: PORT, path: '/orders', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-      }, (res) => {
-        let data = '';
-        res.on('data', d => data += d);
-        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
-      });
-      req.on('error', reject);
-      req.write(body);
-      req.end();
-    });
-    if (res.status !== 201) throw new Error(`expected 201, got ${res.status}`);
-    if (!res.body.id) throw new Error('missing order id in response');
-  });
-
-  await test('GET /metrics returns Prometheus text', async () => {
-    const r = await request('/metrics');
-    if (r.status !== 200) throw new Error(`expected 200, got ${r.status}`);
-  });
-
-  console.log(`\n${passed} passed, ${failed} failed`);
-  proc.kill('SIGTERM');
-  process.exit(failed > 0 ? 1 : 0);
-}
-
-run().catch(e => { console.error(e); if (proc) proc.kill(); process.exit(1); });
+test('GET /metrics returns Prometheus text format', async () => {
+  const r = await request('GET', '/metrics');
+  assert.equal(r.status, 200);
+  assert.ok(r.body.includes('otel_http_server_duration_count'), 'metrics must include otel counter');
+});

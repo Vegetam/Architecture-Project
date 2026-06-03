@@ -1,8 +1,8 @@
 # Architecture Project
 
-A monorepo containing three production-grade platform engineering projects built on Kubernetes. This is the **direct continuation** of [microservices-ddd-kafka](https://github.com/Vegetam/microservices-ddd-kafka), [Saga-pattern-architecture](https://github.com/Vegetam/Saga-pattern-architecture), and [terraform-multicloud](https://github.com/Vegetam/terraform-multicloud) — those repos define the application layer and infrastructure; this repo adds the platform layer on top: GitOps delivery, full observability, and chaos engineering.
+A **reference platform** demonstrating production patterns across GitOps delivery, observability, and chaos engineering on Kubernetes. This is the **direct continuation** of [microservices-ddd-kafka](https://github.com/Vegetam/microservices-ddd-kafka), [Saga-pattern-architecture](https://github.com/Vegetam/Saga-pattern-architecture), and [terraform-multicloud](https://github.com/Vegetam/terraform-multicloud) — those repos define the application layer and infrastructure; this repo adds the platform layer on top.
 
-Each project is independently deployable and integrates with the others to form a complete platform engineering stack.
+Each project implements real patterns with runnable code, tested services, and operational documentation. Where full application code is out of scope, **mock services mirror the real service contracts** — same endpoints, same Prometheus metric names — so the platform behaviour is testable end-to-end without the full application stack.
 
 [![CI](https://github.com/Vegetam/Architecture-Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Vegetam/Architecture-Project/actions/workflows/ci.yml)
 [![Validate](https://github.com/Vegetam/Architecture-Project/actions/workflows/validate.yml/badge.svg)](https://github.com/Vegetam/Architecture-Project/actions/workflows/validate.yml)
@@ -24,6 +24,7 @@ Pull-based GitOps with automated canary and blue/green deployments. Powered by A
 - Automated promotion and rollback based on Prometheus success rate and p99 latency
 - Kustomize overlays for dev / staging / production environments
 - Reusable Helm chart supporting canary, blue/green, or plain Deployment strategy
+- Stub services with non-root Dockerfiles, HEALTHCHECK, graceful shutdown, and smoke tests
 - GitHub Actions CI: build → Trivy scan → push to GHCR → update image tag in git
 
 **Stack**: ArgoCD, Argo Rollouts, Kustomize, Helm, Prometheus, GitHub Container Registry
@@ -59,11 +60,11 @@ Resilience testing for the Vegetam microservices platform. Validates that the sy
 - LitmusChaos game day workflow with automated Resilience Score (0–100)
 - Steady-state hypothesis with 6 Prometheus probes — aborts if system already degraded
 - Safe experiment runner with pre/post steady-state verification and resilience report
+- Mock services with non-root Dockerfiles, HEALTHCHECK, and `node:test` smoke tests
 - Grafana dashboard for chaos metrics and score trend tracking
-- Docker Compose local stack with mock services for testing without Kubernetes
-- kind-based local setup for real chaos injection
+- Docker Compose local stack — `docker compose up` gives you Prometheus + Grafana + target services
+- kind-based local setup for real chaos injection without a cloud cluster
 - 3 ADRs, 3 runbooks (game day playbook, experiment failed, production incident)
-- CI: manifest validation, namespace safety check, shell script lint, security scan
 
 **Stack**: Chaos Mesh, LitmusChaos, Prometheus, Grafana, kind, Docker
 
@@ -82,8 +83,8 @@ Resilience testing for the Vegetam microservices platform. Validates that the sy
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  microservices (order-service, payment-service, saga-orchestrator)  │
-│  Target of both GitOps deployments and chaos experiments            │
-│  Defined in: microservices-ddd-kafka + Saga-pattern-architecture    │
+│  Real implementations: microservices-ddd-kafka + Saga-pattern       │
+│  Mock stubs (same contract): gitops/services/ + chaos/mock-services/│
 └──────────┬──────────────────────────────────────┬───────────────────┘
            │ emits OTel traces/metrics             │ chaos injected by
            ▼                                       ▼
@@ -101,12 +102,16 @@ Resilience testing for the Vegetam microservices platform. Validates that the sy
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-| Project | Depends On | Provides To |
+### Mock services vs real services
+
+Two sets of service stubs exist in this repo — this is intentional, not drift:
+
+| Location | Purpose | Contract |
 |---|---|---|
-| terraform-multicloud | — | EKS/AKS/GKE clusters for all projects |
-| observability-platform-turnkey | — | Prometheus metrics to gitops + chaos |
-| gitops-progressive-delivery | observability (Prometheus) | Deployed microservices |
-| chaos-engineering-platform | observability (Prometheus) | Resilience scores, failure validation |
+| `gitops-progressive-delivery/services/` | Deployment stubs for the GitOps pipeline CI | Same health endpoints as real services |
+| `chaos-engineering-platform/docker/mock-services/` | Local targets for chaos injection and steady-state testing | Same Prometheus metric names as real services |
+
+Neither replaces the real implementations in [microservices-ddd-kafka](https://github.com/Vegetam/microservices-ddd-kafka). They exist to make the platform testable without the full application stack.
 
 ---
 
@@ -114,6 +119,7 @@ Resilience testing for the Vegetam microservices platform. Validates that the sy
 
 ```
 Architecture-Project/
+├── CODEOWNERS
 ├── .github/workflows/
 │   ├── ci.yml          # Per-project CI with path-based change detection
 │   ├── validate.yml    # YAML, Kustomize, Helm, ArgoCD, PromQL validation
@@ -126,7 +132,7 @@ Architecture-Project/
 
 ### CI/CD Pipeline
 
-The root workflows use **path-based change detection** — only the jobs for the changed project run on each push. Unrelated projects are skipped.
+The root workflows use **path-based change detection** — only the jobs for the changed project run on each push.
 
 | Trigger | Jobs that run |
 |---|---|
@@ -139,17 +145,12 @@ The root workflows use **path-based change detection** — only the jobs for the
 
 ## Quick Start
 
-Each project has its own `README.md` with full setup instructions. For a local demo without Kubernetes:
-
 ```bash
-# Observability stack
-cd observability-platform-turnkey
-docker compose -f docker/docker-compose.yml up -d
-
-# Chaos platform with mock services + Grafana
+# Chaos platform — Prometheus + Grafana + mock services (no Kubernetes needed)
 cd chaos-engineering-platform
 docker compose -f docker/docker-compose.yml up -d
-# open http://localhost:3030 (Grafana — admin/admin)
+# open http://localhost:3030  (Grafana — admin/admin)
+# open http://localhost:9090  (Prometheus)
 ```
 
 For full Kubernetes deployment see the individual project READMEs.
@@ -160,7 +161,7 @@ For full Kubernetes deployment see the individual project READMEs.
 
 | Repo | Description |
 |---|---|
-| [microservices-ddd-kafka](https://github.com/Vegetam/microservices-ddd-kafka) | Target microservices (DDD + Kafka + Saga) — this repo builds on top |
+| [microservices-ddd-kafka](https://github.com/Vegetam/microservices-ddd-kafka) | Real service implementations (DDD + Kafka + Saga) — this repo builds on top |
 | [Saga-pattern-architecture](https://github.com/Vegetam/Saga-pattern-architecture) | Saga orchestration pattern — services deployed via gitops-progressive-delivery |
 | [terraform-multicloud](https://github.com/Vegetam/terraform-multicloud) | AWS / Azure / GCP infrastructure (EKS, AKS, GKE) — clusters used by all projects |
 | [zero-trust-platform](https://github.com/Vegetam/zero-trust-platform) | Istio mTLS, Vault, Kyverno policies |
