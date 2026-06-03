@@ -314,7 +314,7 @@ jobs:
         run: node --check server.js
         working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
       - name: Smoke tests
-        run: node smoke.test.js
+        run: node --test smoke.test.js
         working-directory: gitops-progressive-delivery/services/${{ matrix.service }}
 
   gitops-build-and-scan:
@@ -439,7 +439,7 @@ jobs:
         run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - name: Install Kustomize
         run: |
-          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar xz
           sudo mv kustomize /usr/local/bin/
       - name: Update staging image tags
         run: |
@@ -479,7 +479,7 @@ jobs:
         run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - name: Install Kustomize
         run: |
-          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          curl -sL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar xz
           sudo mv kustomize /usr/local/bin/
       - name: Pin production to exact SHA
         run: |
@@ -635,5 +635,5 @@ jobs:
         run: node --check server.js
         working-directory: chaos-engineering-platform/docker/mock-services/${{ matrix.service }}
       - name: Smoke tests
-        run: node smoke.test.js
+        run: node --test smoke.test.js
         working-directory: chaos-engineering-platform/docker/mock-services/${{ matrix.service }}
